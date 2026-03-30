@@ -137,9 +137,13 @@ document.getElementById('panels-menu-btn').addEventListener('click', function(e)
 });
 
 // Close dropdowns on outside click
-document.addEventListener('click', function() {
-  document.getElementById('panels-menu').classList.remove('open');
-  dom.gearMenu.classList.remove('open');
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.panels-menu-wrap')) {
+    document.getElementById('panels-menu').classList.remove('open');
+  }
+  if (!e.target.closest('.gear-menu-wrap')) {
+    dom.gearMenu.classList.remove('open');
+  }
 });
 
 // ── Init ────────────────────────────────────────────────────────────
