@@ -6,6 +6,28 @@ import { windowManager } from './window-manager.js';
 import { RECONNECT_BASE_MS, RECONNECT_MAX_MS } from './constants.js';
 import { settingsManager } from './settings-manager.js';
 
+// GMCP package names follow PascalCase.PascalCase convention (e.g. Char.Status)
+const GMCP_PKG_RE = /^[A-Z][a-zA-Z]*(\.[A-Z][a-zA-Z]*)+$/;
+
+function tryParseGmcp(text) {
+  const spaceIdx = text.indexOf(' ');
+  let packageName, jsonStr;
+  if (spaceIdx === -1) {
+    packageName = text.trim();
+    jsonStr = undefined;
+  } else {
+    packageName = text.substring(0, spaceIdx);
+    jsonStr = text.substring(spaceIdx + 1);
+  }
+  if (!GMCP_PKG_RE.test(packageName)) return null;
+  if (jsonStr === undefined) return { packageName, data: undefined };
+  try {
+    return { packageName, data: JSON.parse(jsonStr) };
+  } catch (e) {
+    return null;
+  }
+}
+
 export function setConnectionState(connState) {
   dom.connectionState.textContent = connState.charAt(0).toUpperCase() + connState.slice(1);
   dom.connectionDot.className = 'conn-dot dot-' + connState;
@@ -72,7 +94,12 @@ export function connect() {
   state.ws.onmessage = function(event) {
     if (typeof event.data === 'string') {
       state.bytesReceived += event.data.length;
-      appendOutput(event.data);
+      const parsed = tryParseGmcp(event.data);
+      if (parsed) {
+        gmcp.dispatch(parsed.packageName, parsed.data);
+      } else {
+        appendOutput(event.data);
+      }
     } else {
       const arr = new Uint8Array(event.data);
       state.bytesReceived += arr.length;
