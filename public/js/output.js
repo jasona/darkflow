@@ -905,6 +905,10 @@ export function appendSystemMessage(text) {
   queueLines([buildSingleTextLine(text, 'system-line')]);
 }
 
+export function appendConnectionSeparator(text) {
+  queueLines([buildSingleTextLine('── ' + text + ' ──', 'connection-separator-line')]);
+}
+
 export function appendEcho(text) {
   queueLines([buildSingleTextLine('> ' + text, 'echo-line')]);
 }

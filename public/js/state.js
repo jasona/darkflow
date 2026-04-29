@@ -7,6 +7,7 @@ export const state = {
   reconnectAttempts: 0,
   reconnectTimer: null,
   userDisconnected: false,
+  disconnectedSendWarningShown: false,
   wsHealth: {
     currentUrl: null,
     lastOpenAt: null,

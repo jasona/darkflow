@@ -1,6 +1,6 @@
 import { state, dom } from './state.js';
 import { gmcp, gmcpTextDecoder } from './gmcp.js';
-import { appendOutput, appendSystemMessage } from './output.js';
+import { appendConnectionSeparator, appendOutput, appendSystemMessage } from './output.js';
 import { panelManager } from './panel-manager.js';
 import { windowManager } from './window-manager.js';
 import { RECONNECT_BASE_MS, RECONNECT_MAX_MS } from './constants.js';
@@ -243,6 +243,12 @@ export function setConnectionState(connState) {
   }
 }
 
+function formatConnectionClockTime(timestamp) {
+  const date = new Date(timestamp);
+  const pad = (value) => String(value).padStart(2, '0');
+  return pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
+}
+
 function scheduleReconnect() {
   state.reconnectAttempts++;
   const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, state.reconnectAttempts - 1), RECONNECT_MAX_MS);
@@ -286,6 +292,10 @@ export async function connect() {
       if (state.ws !== ws) return;
       const wasReconnect = state.reconnectAttempts > 0;
       setConnectionState('connected');
+      state.disconnectedSendWarningShown = false;
+      if (wasReconnect) {
+        appendConnectionSeparator('reconnected at ' + formatConnectionClockTime(Date.now()));
+      }
       state.connectTime = Date.now();
       state.bytesSent = 0;
       state.bytesReceived = 0;

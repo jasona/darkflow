@@ -36,8 +36,23 @@ function normalizeOutboundCommand(text) {
   return DIRECTION_ALIASES[trimmed] || command;
 }
 
+function previewOutboundCommand(text) {
+  const preview = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!preview) return '(empty command)';
+  return preview.length > 80 ? preview.slice(0, 77) + '...' : preview;
+}
+
+function warnDisconnectedSend(text) {
+  if (state.disconnectedSendWarningShown) return;
+  state.disconnectedSendWarningShown = true;
+  appendSystemMessage('Not connected — message not sent: ' + previewOutboundCommand(text));
+}
+
 function sendRawCommand(text) {
-  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return false;
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    warnDisconnectedSend(text);
+    return false;
+  }
 
   const command = normalizeOutboundCommand(text);
 

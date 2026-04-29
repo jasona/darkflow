@@ -1081,6 +1081,11 @@ body {
 
 .echo-line { color: #6e7681; }
 .system-line { color: #3fb950; font-style: italic; }
+.connection-separator-line {
+  color: #79c0ff;
+  font-weight: 700;
+  letter-spacing: 0;
+}
 
 #input-bar {
   display: flex;
