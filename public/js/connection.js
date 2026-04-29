@@ -9,6 +9,7 @@ import { PRODUCT_NAME } from './brand.js';
 
 const WS_DIAG_LIMIT = 100;
 const WS_HEALTH_INTERVAL_MS = 5000;
+const WS_NO_INBOUND_AFTER_OPEN_MS = 5000;
 const WS_STALL_WINDOW_MS = 8000;
 const WS_STALL_COMMAND_BURST_MS = 4000;
 const WS_STALL_COMMAND_BURST_COUNT = 3;
@@ -26,7 +27,7 @@ function trimCommandBurst(now) {
   health.recentCommandTimes = health.recentCommandTimes.filter((ts) => (now - ts) <= WS_STALL_COMMAND_BURST_MS);
 }
 
-function pushWsEvent(type, detail) {
+export function pushWsEvent(type, detail) {
   const health = getHealth();
   health.events.push({
     ts: new Date().toISOString(),
@@ -147,6 +148,23 @@ function evaluateSocketHealth() {
 function startWatchdog() {
   stopWatchdog();
   watchdogTimer = setInterval(evaluateSocketHealth, WS_HEALTH_INTERVAL_MS);
+}
+
+function scheduleNoInboundDiagnostic(ws, openAt) {
+  setTimeout(function() {
+    if (state.ws !== ws || ws.readyState !== WebSocket.OPEN) return;
+
+    const health = getHealth();
+    const lastInboundTextAt = health.lastInboundTextAt || 0;
+    const lastInboundGmcpAt = health.lastInboundGmcpAt || 0;
+    const hasInboundSinceOpen = lastInboundTextAt >= openAt || lastInboundGmcpAt >= openAt;
+
+    if (!hasInboundSinceOpen) {
+      pushWsEvent('reconnect-no-inbound', {
+        msSinceOpen: Date.now() - openAt,
+      });
+    }
+  }, WS_NO_INBOUND_AFTER_OPEN_MS);
 }
 
 export function noteOutboundActivity(kind, metadata) {
@@ -285,15 +303,19 @@ export async function connect() {
     ws.onopen = function() {
       if (state.ws !== ws) return;
       const wasReconnect = state.reconnectAttempts > 0;
+      const reconnectAttempts = state.reconnectAttempts;
       setConnectionState('connected');
-      state.connectTime = Date.now();
+      pushWsEvent('reconnect-open', { wasReconnect, reconnectAttempts, url });
+      const openAt = Date.now();
+      state.connectTime = openAt;
       state.bytesSent = 0;
       state.bytesReceived = 0;
       state.reconnectAttempts = 0;
-      health.lastOpenAt = Date.now();
+      health.lastOpenAt = openAt;
       health.stalledAt = null;
       recordBufferedAmount();
       pushWsEvent('open', { url });
+      scheduleNoInboundDiagnostic(ws, openAt);
       appendSystemMessage('Connected to ' + url);
       dom.statusConnection.textContent = 'Connected: 0s';
       dom.commandInput.focus();

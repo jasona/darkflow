@@ -4,7 +4,7 @@ import { MAX_HISTORY, HISTORY_STORAGE_KEY, LEGACY_SESSION_KEY } from './constant
 import { trackCommand } from './map-data.js';
 import { initCompletion, requestCompletion, resetCompletionState } from './completion.js';
 import { settingsManager } from './settings-manager.js';
-import { sendSocketPayload } from './connection.js';
+import { pushWsEvent, sendSocketPayload } from './connection.js';
 import { aliasManager, tokenizeInput } from './alias-manager.js';
 import { highlightManager } from './highlight-manager.js';
 import { triggerManager } from './trigger-manager.js';
@@ -37,7 +37,13 @@ function normalizeOutboundCommand(text) {
 }
 
 function sendRawCommand(text) {
-  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return false;
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    pushWsEvent('send-blocked-not-open', {
+      readyState: state.ws ? state.ws.readyState : WebSocket.CLOSED,
+      preview: String(text || '').slice(0, 80),
+    });
+    return false;
+  }
 
   const command = normalizeOutboundCommand(text);
 
