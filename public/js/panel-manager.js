@@ -43,6 +43,9 @@ export const panelManager = {
   _saveTimer: null,
   _subscriptionTimer: null,
   _buffTimer: null,
+  _avatarMeterTicker: null,
+  _avatarActiveEndAt: 0,
+  _avatarActiveMaxSec: 0,
   _pendingPanelRenders: new Set(),
   _panelRenderFrame: null,
   _mobile: {
@@ -767,6 +770,56 @@ export const panelManager = {
     if (!meter) return;
     meter.classList.remove('visible', 'full', 'active');
     meter.removeAttribute('data-avatar-meter-present');
+    this._stopAvatarMeterTicker();
+    this._avatarActiveEndAt = 0;
+    this._avatarActiveMaxSec = 0;
+  },
+
+  _startAvatarMeterTicker() {
+    if (this._avatarMeterTicker) return;
+    this._avatarMeterTicker = setInterval(() => this._tickAvatarMeter(), 1000);
+  },
+
+  _stopAvatarMeterTicker() {
+    if (this._avatarMeterTicker) {
+      clearInterval(this._avatarMeterTicker);
+      this._avatarMeterTicker = null;
+    }
+  },
+
+  _tickAvatarMeter() {
+    const meter = document.getElementById('avatar-meter');
+    if (!meter || !this._avatarActiveEndAt) {
+      this._stopAvatarMeterTicker();
+      return;
+    }
+    const remaining = Math.max(0, Math.ceil((this._avatarActiveEndAt - Date.now()) / 1000));
+    if (remaining <= 0) {
+      this._stopAvatarMeterTicker();
+      this._avatarActiveEndAt = 0;
+      meter.classList.remove('active');
+      const fill = meter.querySelector('.avatar-meter-fill');
+      const label = meter.querySelector('.avatar-meter-label');
+      if (fill) fill.style.width = '0%';
+      if (label) label.textContent = 'Wrathful Avatar 0:00';
+      return;
+    }
+    this._renderAvatarActive(remaining);
+  },
+
+  _renderAvatarActive(remaining) {
+    const meter = document.getElementById('avatar-meter');
+    if (!meter) return;
+    const fill = meter.querySelector('.avatar-meter-fill');
+    const label = meter.querySelector('.avatar-meter-label');
+    const max = Math.max(this._avatarActiveMaxSec, remaining, 1);
+    const pct = Math.max(0, Math.min(100, (remaining / max) * 100));
+    if (fill) fill.style.width = pct + '%';
+    if (label) {
+      const minutes = Math.floor(remaining / 60);
+      const seconds = remaining % 60;
+      label.textContent = 'Wrathful Avatar ACTIVE ' + minutes + ':' + String(seconds).padStart(2, '0');
+    }
   },
 
   _updateAvatarMeter(data) {
@@ -794,15 +847,19 @@ export const panelManager = {
     meter.classList.toggle('full', pct >= 100 && !active);
     meter.classList.toggle('active', active);
 
-    if (fill) fill.style.width = (active ? 100 : pct) + '%';
-    if (label) {
-      if (active) {
-        const minutes = Math.floor(activeRemaining / 60);
-        const seconds = activeRemaining % 60;
-        label.textContent = 'Wrathful Avatar ACTIVE ' + minutes + ':' + String(seconds).padStart(2, '0');
-      } else {
-        label.textContent = 'Wrathful Avatar ' + pct + '%';
+    if (active) {
+      this._avatarActiveEndAt = Date.now() + activeRemaining * 1000;
+      if (activeRemaining > this._avatarActiveMaxSec) {
+        this._avatarActiveMaxSec = activeRemaining;
       }
+      this._renderAvatarActive(activeRemaining);
+      this._startAvatarMeterTicker();
+    } else {
+      this._stopAvatarMeterTicker();
+      this._avatarActiveEndAt = 0;
+      this._avatarActiveMaxSec = 0;
+      if (fill) fill.style.width = pct + '%';
+      if (label) label.textContent = 'Wrathful Avatar ' + pct + '%';
     }
   },
 
