@@ -1,6 +1,6 @@
 import { state, dom, initDom } from './state.js';
 import { gmcp } from './gmcp.js';
-import { initOutput } from './output.js';
+import { appendSystemMessage, initOutput } from './output.js';
 import { panelManager } from './panel-manager.js';
 import { connect, getWsDebugSnapshot } from './connection.js';
 import { loadHistory, saveHistory, saveHistoryNow, initInput } from './input.js';
@@ -145,6 +145,22 @@ gmcp.on('*', function(packageName, data) {
   }
   pushGmcpEntry('[' + new Date().toLocaleTimeString() + '] '
     + packageName + ' ' + JSON.stringify(data));
+});
+
+gmcp.on('Darkwind.Session.Recovered', function(data) {
+  if (!data || !data.mode) return;
+
+  if (data.mode === 'linkdead') {
+    appendSystemMessage('Reconnected to your existing session (linkdead recovery).');
+  } else if (data.mode === 'takeover') {
+    appendSystemMessage('Reconnected - your previous session has been replaced.');
+  } else if (data.mode === 'switch') {
+    if (!data.playerName || !data.previousCharacter) return;
+    const playerName = data.playerName;
+    const previousCharacter = data.previousCharacter;
+    appendSystemMessage('Switched to ' + playerName + '. ' + previousCharacter
+      + ' is parked and will idle out in 45-60 minutes.');
+  }
 });
 
 // ── Game Uptime (from GMCP Game package) ────────────────────────────
