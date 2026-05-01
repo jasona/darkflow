@@ -6,7 +6,7 @@ import { highlightManager } from './highlight-manager.js';
 import { triggerManager } from './trigger-manager.js';
 import { styleToElement } from './ansi.js';
 import { panelManager } from './panel-manager.js';
-import { PRODUCT_NAME, PRODUCT_TAGLINE } from './brand.js';
+import { PRODUCT_NAME } from './brand.js';
 
 const SETTINGS_STORAGE_KEY = 'darkwind-client-settings';
 const ALIAS_STORAGE_KEY = 'darkwind-client-aliases-v1';
@@ -2160,9 +2160,26 @@ export const settingsManager = {
     name.className = 'settings-about-title';
     name.textContent = PRODUCT_NAME;
 
+    const siteLink = document.createElement('a');
+    siteLink.className = 'settings-about-extlink';
+    siteLink.href = 'https://darkflow.darkwind.ai';
+    siteLink.target = '_blank';
+    siteLink.rel = 'noopener noreferrer';
+    siteLink.title = 'Open ' + PRODUCT_NAME + ' site';
+    siteLink.setAttribute('aria-label', 'Open ' + PRODUCT_NAME + ' site');
+    siteLink.appendChild(this._externalLinkIcon());
+    name.appendChild(siteLink);
+
     const tagline = document.createElement('div');
     tagline.className = 'settings-about-tagline';
-    tagline.textContent = PRODUCT_TAGLINE;
+    tagline.appendChild(document.createTextNode('Web-based MUD client - built for '));
+    const darkwindLink = document.createElement('a');
+    darkwindLink.href = 'https://play.darkwind.ai';
+    darkwindLink.target = '_blank';
+    darkwindLink.rel = 'noopener noreferrer';
+    darkwindLink.className = 'settings-about-link';
+    darkwindLink.textContent = 'Darkwind';
+    tagline.appendChild(darkwindLink);
 
     copy.appendChild(name);
     copy.appendChild(tagline);
@@ -2173,7 +2190,7 @@ export const settingsManager = {
     const infoGrid = document.createElement('div');
     infoGrid.className = 'settings-about-grid';
 
-    const addInfo = (label, value) => {
+    const addInfo = (label, valueNode) => {
       const card = document.createElement('div');
       card.className = 'settings-connection-card';
 
@@ -2183,7 +2200,8 @@ export const settingsManager = {
 
       const valueEl = document.createElement('div');
       valueEl.className = 'settings-connection-value';
-      valueEl.textContent = value;
+      if (typeof valueNode === 'string') valueEl.textContent = valueNode;
+      else valueEl.appendChild(valueNode);
 
       card.appendChild(labelEl);
       card.appendChild(valueEl);
@@ -2191,39 +2209,33 @@ export const settingsManager = {
     };
 
     addInfo('Client version', state.clientVersion || 'unknown');
-    addInfo('Protocol identity', PRODUCT_NAME + ' via Core.Hello');
-    addInfo('GMCP packages', 'Darkwind.* package names remain protocol-stable');
+
+    const gmcpLink = document.createElement('a');
+    gmcpLink.href = 'https://github.com/jasona/darkflow/tree/main/docs';
+    gmcpLink.target = '_blank';
+    gmcpLink.rel = 'noopener noreferrer';
+    gmcpLink.className = 'settings-about-link';
+    gmcpLink.textContent = 'See custom GMCP extensions';
+    gmcpLink.appendChild(this._externalLinkIcon());
+    addInfo('GMCP packages', gmcpLink);
 
     wrapper.appendChild(infoGrid);
 
-    const assetsCard = document.createElement('div');
-    assetsCard.className = 'settings-connection-card';
-
-    const assetsLabel = document.createElement('div');
-    assetsLabel.className = 'settings-label';
-    assetsLabel.textContent = 'Brand assets';
-
-    const assetsCopy = document.createElement('p');
-    assetsCopy.className = 'dw-paragraph';
-    assetsCopy.textContent = 'Open the hidden brand asset page to view and download current Darkflow logos and icons.';
-
-    const assetsActions = document.createElement('div');
-    assetsActions.className = 'settings-inline-actions';
-
-    const openAssets = document.createElement('a');
-    openAssets.className = 'dw-button dw-button-secondary settings-about-link';
-    openAssets.href = 'darkflow-brand.html';
-    openAssets.target = '_blank';
-    openAssets.rel = 'noopener';
-    openAssets.textContent = 'Open brand assets';
-
-    assetsActions.appendChild(openAssets);
-    assetsCard.appendChild(assetsLabel);
-    assetsCard.appendChild(assetsCopy);
-    assetsCard.appendChild(assetsActions);
-    wrapper.appendChild(assetsCard);
-
     return wrapper;
+  },
+
+  _externalLinkIcon() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'settings-about-extlink-icon');
+    svg.setAttribute('viewBox', '0 0 16 16');
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    svg.innerHTML =
+      '<path fill="currentColor" d="M9 2h5v5h-1.5V4.56L7.78 9.28 6.72 8.22 11.44 3.5H9V2z"/>' +
+      '<path fill="currentColor" d="M3 4h4v1.5H4.5v6h6V9H12v4H3V4z"/>';
+    return svg;
   },
 
   _buildModal() {

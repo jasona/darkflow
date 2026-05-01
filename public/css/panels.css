@@ -314,6 +314,7 @@ body.mobile-panel-mode #mobile-panels-btn {
 
 .avatar-panel-image.avatar-loading { opacity: 0.5; }
 .avatar-panel-image.avatar-default { opacity: 0.6; }
+.avatar-panel-image.avatar-panel-image-zoomable { cursor: zoom-in; }
 
 .avatar-panel-name {
   width: 100%;
@@ -483,6 +484,116 @@ body.mobile-panel-mode #mobile-panels-btn {
   height: 100%;
   border-radius: 3px;
   transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+/* ── Omens panel ────────────────────────────────────────────────────── */
+.omens-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.omens-summary {
+  color: #c9d1d9;
+  line-height: 1.35;
+}
+
+.omens-status-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.omens-status-grid > div {
+  min-width: 0;
+  padding: 5px 6px;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  background: #0d1117;
+}
+
+.omens-status-grid span,
+.omens-pressure-label span:last-child,
+.omens-muted {
+  display: block;
+  color: #8b949e;
+  font-size: 10px;
+}
+
+.omens-status-grid strong {
+  display: block;
+  margin-top: 2px;
+  color: #e6edf3;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.omens-pressure {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.omens-pressure-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+  color: #c9d1d9;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.omens-pressure-bar {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #161b22;
+}
+
+.omens-pressure-bar > div {
+  height: 100%;
+  min-width: 2px;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.omens-god-mitra { color: #f2cc60; }
+.omens-god-gaea { color: #7ee787; }
+.omens-god-set { color: #d2a8ff; }
+.omens-pressure-row.omens-god-mitra .omens-pressure-bar > div {
+  background: linear-gradient(90deg, #8f6b18, #f2cc60);
+}
+.omens-pressure-row.omens-god-gaea .omens-pressure-bar > div {
+  background: linear-gradient(90deg, #1f7a3b, #7ee787);
+}
+.omens-pressure-row.omens-god-set .omens-pressure-bar > div {
+  background: linear-gradient(90deg, #5f2c82, #d2a8ff);
+}
+
+.omens-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.omens-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 2px 6px;
+  border: 1px solid #30363d;
+  border-radius: 999px;
+  background: #161b22;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.omens-eclipse {
+  color: #ff7b72;
+  border-color: rgba(248, 81, 73, 0.45);
+  background: rgba(248, 81, 73, 0.12);
 }
 
 /* ── Stats table ────────────────────────────────────────────────────── */

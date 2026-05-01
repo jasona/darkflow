@@ -56,6 +56,10 @@ function getLangExtension(language) {
   }
 }
 
+function isReadOnlyValue(value) {
+  return value === true || value === 1 || value === '1' || value === 'true';
+}
+
 export const ideEditor = {
   view: null,
   overlay: null,
@@ -68,6 +72,7 @@ export const ideEditor = {
   errorList: null,
   errorTitle: null,
   saveBtn: null,
+  closeBtn: null,
   statusText: null,
   readOnly: false,
 
@@ -76,13 +81,16 @@ export const ideEditor = {
   },
 
   open(data, callbacks) {
+    // Remove any existing overlay before assigning callbacks; close(true)
+    // clears callback state for the previous editor instance.
+    if (this.overlay) this.close(true);
+
     this.callbacks = callbacks;
     this.currentPath = data.path || '';
     this.originalContent = data.content || '';
-    this.readOnly = !!data.readOnly;
-
-    // Remove any existing overlay
-    if (this.overlay) this.close(true);
+    this.readOnly = isReadOnlyValue(data.readOnly);
+    this.saveBtn = null;
+    this.closeBtn = null;
 
     this.lintCompartment = new cm.Compartment();
 
@@ -99,8 +107,8 @@ export const ideEditor = {
 
     const filepath = document.createElement('div');
     filepath.className = 'ide-filepath';
-    filepath.textContent = data.path || 'untitled';
-    if (data.readOnly) {
+    filepath.textContent = data.title || data.path || 'untitled';
+    if (this.readOnly) {
       const badge = document.createElement('span');
       badge.className = 'ide-readonly-badge';
       badge.textContent = 'READ ONLY';
@@ -110,8 +118,9 @@ export const ideEditor = {
     const actions = document.createElement('div');
     actions.className = 'ide-actions';
 
-    if (!data.readOnly) {
+    if (!this.readOnly) {
       this.saveBtn = document.createElement('button');
+      this.saveBtn.type = 'button';
       this.saveBtn.className = 'ide-btn ide-btn-save';
       this.saveBtn.textContent = 'Save';
       this.saveBtn.title = 'Ctrl+S';
@@ -119,12 +128,13 @@ export const ideEditor = {
       actions.appendChild(this.saveBtn);
     }
 
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'ide-btn ide-btn-close';
-    closeBtn.textContent = 'Close';
-    closeBtn.title = 'Escape';
-    closeBtn.addEventListener('click', () => this.tryClose());
-    actions.appendChild(closeBtn);
+    this.closeBtn = document.createElement('button');
+    this.closeBtn.type = 'button';
+    this.closeBtn.className = 'ide-btn ide-btn-close';
+    this.closeBtn.textContent = 'Close';
+    this.closeBtn.title = 'Escape';
+    this.closeBtn.addEventListener('click', () => this.tryClose());
+    actions.appendChild(this.closeBtn);
 
     header.appendChild(filepath);
     header.appendChild(actions);
@@ -192,7 +202,7 @@ export const ideEditor = {
       }),
     ];
 
-    if (data.readOnly) {
+    if (this.readOnly) {
       extensions.push(cm.EditorState.readOnly.of(true));
     }
 
@@ -224,7 +234,7 @@ export const ideEditor = {
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
-        this.tryClose();
+        this.tryClose({ confirmDirty: false });
       }
     };
     document.addEventListener('keydown', this._keyHandler, true);
@@ -353,10 +363,16 @@ export const ideEditor = {
     if (this.statusText) this.statusText.textContent = text;
   },
 
-  tryClose() {
+  tryClose(options = {}) {
+    const confirmDirty = options.confirmDirty !== false;
+
     if (this.view) {
       const current = this.view.state.doc.toString();
       if (current !== this.originalContent) {
+        if (!confirmDirty) {
+          this.updateStatus('Unsaved changes');
+          return;
+        }
         if (!confirm('You have unsaved changes. Close anyway?')) return;
       }
     }
@@ -376,6 +392,8 @@ export const ideEditor = {
       this.view.destroy();
       this.view = null;
     }
+    this.saveBtn = null;
+    this.closeBtn = null;
     if (!silent && this.callbacks) {
       this.callbacks.onClose(this.currentPath);
     }

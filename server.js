@@ -25,11 +25,16 @@ const PORT = process.env.PORT || 3000;
 
 // Serve client configuration from environment variables
 app.get('/config.json', (req, res) => {
+  const hiddenPanels = (process.env.HIDDEN_PANELS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   res.json({
     host: process.env.MUD_HOST || '',
     port: parseInt(process.env.MUD_PORT, 10) || 4242,
     wss: process.env.MUD_WSS !== '0',
     gameName: process.env.GAME_NAME || '',
+    hiddenPanels,
   });
 });
 

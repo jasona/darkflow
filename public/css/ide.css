@@ -26,8 +26,14 @@
 }
 
 .ide-filepath {
-  font-family: 'Courier New', monospace;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: inherit;
   font-size: 13px;
+  font-weight: 600;
   color: #c9d1d9;
 }
 
@@ -49,6 +55,7 @@
 
 .ide-actions {
   display: flex;
+  flex: 0 0 auto;
   gap: 8px;
 }
 

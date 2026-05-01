@@ -301,6 +301,9 @@ fetch('/config.json').then(r => r.json()).catch(() => ({})).then(config => {
   if (config.gameName) {
     updateBranding(config.gameName);
   }
+  if (Array.isArray(config.hiddenPanels)) {
+    panelManager.setHiddenByDefault(config.hiddenPanels);
+  }
   // Auto-connect if a host is configured
   if (dom.host.value) {
     connect();

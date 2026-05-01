@@ -4,7 +4,7 @@ import { panelRenderers } from './panel-renderers.js';
 import { processRoomInfo, mergeServerAreaData, mergeServerUpdate, applyRoomCorrection, load as loadMapData } from './map-data.js';
 
 const MOBILE_BREAKPOINT_PX = 700;
-const MOBILE_PRIMARY_PANELS = ['room', 'vitals', 'buffs', 'inventory', 'map', 'chat', 'quests', 'achievements'];
+const MOBILE_PRIMARY_PANELS = ['room', 'vitals', 'omens', 'buffs', 'inventory', 'map', 'chat', 'quests', 'achievements'];
 const AVATAR_CHARGE_TICK_MS = 2000;
 
 function cloneState(value) {
@@ -41,6 +41,8 @@ export const panelManager = {
   state: { docks: { left: false, right: false }, panels: {} },
   panels: {},
   gmcpData: {},
+  _hiddenByDefault: new Set(),
+  _hadSavedEntry: new Set(),
   _saveTimer: null,
   _subscriptionTimer: null,
   _buffTimer: null,
@@ -80,6 +82,16 @@ export const panelManager = {
     this.registerGmcpHandlers();
     this._attachResizeHandler();
     this._syncResponsiveMode(true);
+  },
+
+  setHiddenByDefault(ids) {
+    this._hiddenByDefault = new Set(Array.isArray(ids) ? ids : []);
+    for (const id of this._hiddenByDefault) {
+      if (!PANEL_DEFS[id]) continue;
+      if (this._hadSavedEntry.has(id)) continue;
+      const st = this.state.panels[id];
+      if (st && st.visible) this.closePanel(id);
+    }
   },
 
   exportState() {
@@ -148,9 +160,11 @@ export const panelManager = {
     }
 
     const panels = {};
+    this._hadSavedEntry.clear();
     for (const [id, def] of Object.entries(PANEL_DEFS)) {
       const s = (saved && saved.panels && saved.panels[id]) || {};
       const hasSavedState = !!(saved && saved.panels && saved.panels[id]);
+      if (hasSavedState) this._hadSavedEntry.add(id);
       const defW = def.defaultFloatW || 280;
       const defH = def.defaultFloatH || 200;
       let defaultSnapLeft = !!def.defaultSnapLeft;
@@ -180,11 +194,13 @@ export const panelManager = {
         defaultSnapBottom = false;
         defaultSnapTop = false;
       }
+      const builtInDefaultVisible = def.defaultVisible !== undefined ? def.defaultVisible : true;
+      const effectiveDefaultVisible = this._hiddenByDefault.has(id) ? false : builtInDefaultVisible;
       panels[id] = {
         dock: s.dock || def.defaultDock,
         order: s.order !== undefined ? s.order : def.defaultOrder,
         collapsed: !!s.collapsed,
-        visible: s.visible !== undefined ? s.visible : (def.defaultVisible !== undefined ? def.defaultVisible : true),
+        visible: s.visible !== undefined ? s.visible : effectiveDefaultVisible,
         floatX: s.floatX !== undefined ? s.floatX : defX,
         floatY: s.floatY !== undefined ? s.floatY : defY,
         floatW: s.floatW || defW,
@@ -771,12 +787,23 @@ export const panelManager = {
   _hideAvatarMeter() {
     const meter = document.getElementById('avatar-meter');
     if (!meter) return;
-    meter.classList.remove('visible', 'full', 'active');
+    meter.classList.remove('visible', 'full', 'active', 'patron-mitra', 'patron-gaea', 'patron-set');
     meter.removeAttribute('data-avatar-meter-present');
     this._stopAvatarMeterTicker();
     this._avatarActiveEndAt = 0;
     this._avatarActiveMaxSec = 0;
     this._avatarChargeSync = null;
+  },
+
+  _setAvatarMeterPatron(patron) {
+    const meter = document.getElementById('avatar-meter');
+    if (!meter) return;
+
+    const key = patron ? String(patron).toLowerCase() : '';
+    meter.classList.remove('patron-mitra', 'patron-gaea', 'patron-set');
+    if (key === 'mitra' || key === 'gaea' || key === 'set') {
+      meter.classList.add('patron-' + key);
+    }
   },
 
   _startAvatarMeterTicker() {
@@ -889,11 +916,14 @@ export const panelManager = {
     const active = activeRemaining > 0;
     const hasActiveMax = Object.prototype.hasOwnProperty.call(data, 'avatar_active_max');
     const activeMax = Number(data.avatar_active_max) || 0;
+    const patron = data.divine_patron || data.patron ||
+      (this.gmcpData.omens && this.gmcpData.omens.patron);
 
     meter.setAttribute('data-avatar-meter-present', '1');
     meter.classList.add('visible');
     meter.classList.toggle('full', pct >= 100 && !active);
     meter.classList.toggle('active', active);
+    this._setAvatarMeterPatron(patron);
 
     if (active) {
       this._avatarChargeSync = null;
@@ -1397,6 +1427,17 @@ export const panelManager = {
       this.gmcpData.vitals = fullVitals ? data : Object.assign({}, this.gmcpData.vitals || {}, data || {});
       this._updateAvatarMeter(this.gmcpData.vitals);
       this._renderPanel('vitals');
+    });
+
+    gmcp.on('Darkwind.Divine', (data) => {
+      this.gmcpData.omens = data || {};
+      if (this.gmcpData.vitals) {
+        this.gmcpData.vitals.divine_patron = this.gmcpData.omens.patron || '';
+        this._updateAvatarMeter(this.gmcpData.vitals);
+      } else {
+        this._setAvatarMeterPatron(this.gmcpData.omens.patron);
+      }
+      this._renderPanel('omens');
     });
 
     gmcp.on('Char.Stats', (data) => {

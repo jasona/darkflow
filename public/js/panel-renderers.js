@@ -51,6 +51,22 @@ export function vitalBarColor(pct) {
   return '#f85149';
 }
 
+function divineGodLabel(god) {
+  switch (String(god || '').toLowerCase()) {
+    case 'mitra': return 'Mitra';
+    case 'gaea': return 'Gaea';
+    case 'set': return 'Set';
+    default: return 'None';
+  }
+}
+
+function divineModifierLabel(value) {
+  const n = Number(value) || 0;
+  if (n > 0) return '+' + n + '% charge';
+  if (n < 0) return n + '% charge';
+  return 'No charge modifier';
+}
+
 function closeRoomImageModal() {
   if (!roomImageModal) return;
   if (roomImageModalKeyHandler) {
@@ -136,17 +152,28 @@ export function renderVitalBar(bodyEl, label, cur, max) {
 
 export const panelRenderers = {
   avatar(bodyEl, data) {
-    const src = (data && data.url) ? data.url : '/assets/avatar-ghost.svg';
+    const hasAvatar = !!(data && data.url);
+    const src = hasAvatar ? data.url : '/assets/avatar-ghost.svg';
     const alt = (data && data.name) ? data.name : 'Avatar';
-    const defaultClass = (data && data.url) ? '' : ' avatar-default';
+    const defaultClass = hasAvatar ? '' : ' avatar-default';
     const loadingClass = (data && data.loading) ? ' avatar-loading' : '';
+    const zoomableClass = hasAvatar ? ' avatar-panel-image-zoomable' : '';
     let html = '<div class="avatar-panel-wrap">';
-    html += '<img class="avatar-panel-image' + defaultClass + loadingClass + '" src="' + escHtml(src) + '" alt="' + escHtml(alt) + '" draggable="false">';
+    html += '<img class="avatar-panel-image' + defaultClass + loadingClass + zoomableClass + '" src="' + escHtml(src) + '" alt="' + escHtml(alt) + '" draggable="false">';
     if (data && data.name) {
       html += '<div class="avatar-panel-name">' + escHtml(data.name) + '</div>';
     }
     html += '</div>';
     bodyEl.innerHTML = html;
+
+    if (hasAvatar) {
+      const img = bodyEl.querySelector('.avatar-panel-image');
+      if (img) {
+        img.addEventListener('click', function() {
+          openRoomImageModal(data.url, alt);
+        });
+      }
+    }
   },
 
   roomImage(bodyEl, data) {
@@ -179,6 +206,57 @@ export const panelRenderers = {
     if (bodyEl.querySelector('.placeholder')) bodyEl.innerHTML = '';
     renderVitalBar(bodyEl, 'HP', data.hp, data.maxhp);
     renderVitalBar(bodyEl, 'SP', data.sp, data.maxsp);
+  },
+
+  omens(bodyEl, data) {
+    if (!data) {
+      bodyEl.innerHTML = '<div class="placeholder">Waiting for omens...</div>';
+      return;
+    }
+
+    const scale = data.pressure_scale || {};
+    const holy = data.holy_hour || {};
+    const eclipse = data.eclipse || {};
+    const patron = data.patron ? divineGodLabel(data.patron) : 'None';
+    const leader = data.leader ? divineGodLabel(data.leader) : 'No ascendant';
+    const rank = data.rank_label || 'None';
+    const summary = data.summary || 'The omens are quiet.';
+    const gods = ['mitra', 'gaea', 'set'];
+    let html = '<div class="omens-panel">';
+
+    html += '<div class="omens-summary">' + escHtml(summary) + '</div>';
+    html += '<div class="omens-status-grid">';
+    html += '<div><span>Patron</span><strong class="omens-god-' + escHtml(String(data.patron || 'none').toLowerCase()) + '">' + escHtml(patron) + '</strong></div>';
+    html += '<div><span>Standing</span><strong>' + escHtml(rank) + '</strong></div>';
+    html += '<div><span>Charge</span><strong>' + escHtml(divineModifierLabel(data.modifier_pct)) + '</strong></div>';
+    html += '<div><span>Ascendant</span><strong class="omens-god-' + escHtml(String(data.leader || 'none').toLowerCase()) + '">' + escHtml(leader) + '</strong></div>';
+    html += '</div>';
+
+    html += '<div class="omens-pressure">';
+    for (const god of gods) {
+      const pct = Math.max(0, Math.min(100, Number(scale[god]) || 0));
+      html += '<div class="omens-pressure-row omens-god-' + god + '">' +
+        '<div class="omens-pressure-label"><span>' + divineGodLabel(god) + '</span><span>' + (pct > 0 ? 'stirring' : 'silent') + '</span></div>' +
+        '<div class="omens-pressure-bar"><div style="width:' + pct + '%"></div></div>' +
+        '</div>';
+    }
+    html += '</div>';
+
+    html += '<div class="omens-flags">';
+    if (holy && holy.god) {
+      html += '<span class="omens-chip omens-god-' + escHtml(String(holy.god).toLowerCase()) + '">Holy Hour: ' +
+        escHtml(divineGodLabel(holy.god)) + '</span>';
+    }
+    if (eclipse && eclipse.active) {
+      html += '<span class="omens-chip omens-eclipse">Set Eclipse: ' +
+        escHtml(formatDuration(eclipse.seconds_left)) + '</span>';
+    }
+    if (!holy.god && !(eclipse && eclipse.active)) {
+      html += '<span class="omens-muted">No active divine event.</span>';
+    }
+    html += '</div>';
+    html += '</div>';
+    bodyEl.innerHTML = html;
   },
 
   stats(bodyEl, data) {
