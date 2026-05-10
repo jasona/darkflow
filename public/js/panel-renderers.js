@@ -604,10 +604,13 @@ export const panelRenderers = {
       const slot = getSlot(item.name);
       const entry = { id: item.id, name: clean, attrib: item.attrib, slot: slot, raw: item.name };
 
-      if (item.attrib === 'l') { wielded.push(entry); if (slot) slots[slot] = entry; }
-      else if (item.attrib === 'w') { worn.push(entry); if (slot) slots[slot] = entry; }
-      else if (item.attrib === 'c') containers.push(entry);
-      else carried.push(entry);
+      const isWielded = item.attrib && item.attrib.includes('l');
+      const isWorn = item.attrib && item.attrib.includes('w');
+      const isContainer = item.attrib && item.attrib.includes('c');
+      if (isWielded) { wielded.push(entry); if (slot) slots[slot] = entry; }
+      if (isWorn) { worn.push(entry); if (slot) slots[slot] = entry; }
+      if (isContainer) containers.push(entry);
+      if (!isWielded && !isWorn && !isContainer) carried.push(entry);
 
       // Handle multi-slot items
       if (slot === 'Body+Legs') { slots['Body'] = entry; slots['Legs'] = entry; }
