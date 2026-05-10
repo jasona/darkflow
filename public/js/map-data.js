@@ -47,9 +47,17 @@ let saveTimer = null;
 // Debug transition log — captures every Room.Info event with context
 const debugLog = [];
 
+function normalizeRoomId(id) {
+  return id === null || id === undefined ? null : String(id);
+}
+
+function shortRoomId(id) {
+  return id === null || id === undefined ? null : String(id).slice(0, 8);
+}
+
 export function getCurrentRoomId() { return currentRoomId; }
 
-export function getRoom(id) { return rooms.get(id); }
+export function getRoom(id) { return rooms.get(normalizeRoomId(id)); }
 
 export function getRoomsByArea(area) {
   const result = [];
@@ -127,10 +135,10 @@ export function trackCommand(cmd) {
 }
 
 export function processRoomInfo(data) {
-  if (!data || !data.num) return null;
+  if (!data || data.num === null || data.num === undefined) return null;
   pruneMovementIntents(Date.now());
 
-  const roomId = data.num;
+  const roomId = normalizeRoomId(data.num);
   const roomChanged = roomId !== currentRoomId;
   const isNew = !rooms.has(roomId);
 
@@ -141,14 +149,14 @@ export function processRoomInfo(data) {
   const pendingDirectionUsed = movementIntent ? movementIntent.direction : null;
   const entry = {
     ts: new Date().toISOString(),
-    roomId: roomId.slice(0, 8),
+    roomId: shortRoomId(roomId),
     name: data.name || '?',
     area: data.area || '?',
     environment: data.environment || '',
     exits: data.exits && typeof data.exits === 'object' ? Object.keys(data.exits) : [],
     pendingDir: pendingDirectionUsed,
     movementSeq: movementIntent ? movementIntent.seq : null,
-    fromRoomId: fromRoomId ? fromRoomId.slice(0, 8) : null,
+    fromRoomId: shortRoomId(fromRoomId),
     fromRoomName: fromRoomId && rooms.get(fromRoomId) ? rooms.get(fromRoomId).name : null,
     isNew,
     roomChanged,
@@ -180,7 +188,7 @@ export function processRoomInfo(data) {
   if (data.exits && typeof data.exits === 'object') {
     room.exits = {};
     for (const [dir, destId] of Object.entries(data.exits)) {
-      room.exits[dir] = destId;
+      room.exits[dir] = normalizeRoomId(destId);
     }
   } else if (data.exits === '') {
     room.exits = {};
@@ -200,7 +208,7 @@ export function processRoomInfo(data) {
         updateRoomCoords(room, nx, ny, nz, 'inferred');
         entry.result = 'assigned ' + nx + ',' + ny + ',' + nz;
       } else {
-        entry.result = 'CONFLICT at ' + nx + ',' + ny + ',' + nz + ' (occupied by ' + coordIndex.get(coordKey).slice(0, 8) + ')';
+        entry.result = 'CONFLICT at ' + nx + ',' + ny + ',' + nz + ' (occupied by ' + shortRoomId(coordIndex.get(coordKey)) + ')';
         triggerAreaResync(room.area, 'coordinate conflict after ' + pendingDirectionUsed);
       }
     } else {
@@ -347,13 +355,20 @@ export function load() {
     if (data.rooms) {
       rooms.clear();
       for (const [id, room] of Object.entries(data.rooms)) {
+        const normalizedId = normalizeRoomId(id);
+        room.id = normalizeRoomId(room.id) || normalizedId;
+        if (room.exits && typeof room.exits === 'object') {
+          for (const [dir, destId] of Object.entries(room.exits)) {
+            room.exits[dir] = normalizeRoomId(destId);
+          }
+        }
         if (room.x !== null && !room.coordSource) room.coordSource = 'server';
-        rooms.set(id, room);
+        rooms.set(normalizedId, room);
       }
       rebuildCoordIndex();
     }
-    if (data.currentRoomId) currentRoomId = data.currentRoomId;
-    if (data.previousRoomId) previousRoomId = data.previousRoomId;
+    if (data.currentRoomId !== null && data.currentRoomId !== undefined) currentRoomId = normalizeRoomId(data.currentRoomId);
+    if (data.previousRoomId !== null && data.previousRoomId !== undefined) previousRoomId = normalizeRoomId(data.previousRoomId);
     if (data.areaVersions) {
       areaVersions.clear();
       for (const [area, ver] of Object.entries(data.areaVersions)) {
@@ -379,12 +394,13 @@ export function mergeServerAreaData(data) {
   let merged = 0;
   let correctedCurrentRoom = false;
   for (const serverRoom of data.rooms) {
-    if (!serverRoom.id) continue;
+    const serverRoomId = normalizeRoomId(serverRoom.id);
+    if (!serverRoomId) continue;
 
-    let room = rooms.get(serverRoom.id);
+    let room = rooms.get(serverRoomId);
     if (!room) {
       room = {
-        id: serverRoom.id,
+        id: serverRoomId,
         name: serverRoom.name || '',
         area: data.area,
         environment: serverRoom.env || '',
@@ -392,7 +408,7 @@ export function mergeServerAreaData(data) {
         x: null, y: null, z: null,
         coordSource: null,
       };
-      rooms.set(serverRoom.id, room);
+      rooms.set(serverRoomId, room);
     }
 
     // Server name/env updates
@@ -403,7 +419,7 @@ export function mergeServerAreaData(data) {
     if (serverRoom.exits && typeof serverRoom.exits === 'object') {
       room.exits = {};
       for (const [dir, destId] of Object.entries(serverRoom.exits)) {
-        room.exits[dir] = destId;
+        room.exits[dir] = normalizeRoomId(destId);
       }
     }
 
@@ -452,12 +468,13 @@ export function mergeServerUpdate(data) {
 }
 
 export function applyRoomCorrection(data) {
-  if (!data || !data.id || data.x === undefined || data.y === undefined || data.z === undefined) return 0;
+  if (!data || data.id === null || data.id === undefined || data.x === undefined || data.y === undefined || data.z === undefined) return 0;
 
-  let room = rooms.get(data.id);
+  const roomId = normalizeRoomId(data.id);
+  let room = rooms.get(roomId);
   if (!room) {
     room = {
-      id: data.id,
+      id: roomId,
       name: data.name || '',
       area: data.area || '',
       environment: data.environment || '',
@@ -465,7 +482,7 @@ export function applyRoomCorrection(data) {
       x: null, y: null, z: null,
       coordSource: null,
     };
-    rooms.set(data.id, room);
+    rooms.set(roomId, room);
   } else if (data.area) {
     room.area = data.area;
   }
@@ -514,14 +531,14 @@ function debugDumpRooms() {
   const out = [];
   for (const room of rooms.values()) {
     out.push({
-      id: room.id.slice(0, 8),
+      id: shortRoomId(room.id),
       name: room.name,
       area: room.area,
       env: room.environment,
       coords: room.x !== null ? room.x + ',' + room.y + ',' + room.z : 'NONE',
       exits: Object.keys(room.exits),
       exitTargets: Object.fromEntries(
-        Object.entries(room.exits).map(([d, id]) => [d, id.slice(0, 8)])
+        Object.entries(room.exits).map(([d, id]) => [d, shortRoomId(id)])
       ),
     });
   }
@@ -534,7 +551,7 @@ function debugDumpConflicts() {
   for (const room of rooms.values()) {
     if (room.x === null) {
       unpositioned.push({
-        id: room.id.slice(0, 8),
+        id: shortRoomId(room.id),
         name: room.name,
         area: room.area,
         exits: Object.keys(room.exits),
@@ -548,7 +565,7 @@ function debugDumpCoordIndex() {
   const out = {};
   for (const [key, id] of coordIndex) {
     const room = rooms.get(id);
-    out[key] = { id: id.slice(0, 8), name: room ? room.name : '?' };
+    out[key] = { id: shortRoomId(id), name: room ? room.name : '?' };
   }
   return out;
 }
@@ -569,7 +586,7 @@ function debugDumpDuplicateCoords() {
     duplicates.push({
       coord: key,
       rooms: bucket.map((room) => ({
-        id: room.id.slice(0, 8),
+        id: shortRoomId(room.id),
         name: room.name,
         area: room.area,
       })),
@@ -596,9 +613,9 @@ function debugSummary() {
     totalRooms: total,
     positioned,
     unpositioned,
-    currentRoom: currentRoomId ? currentRoomId.slice(0, 8) : null,
+    currentRoom: shortRoomId(currentRoomId),
     currentName: currentRoomId && rooms.get(currentRoomId) ? rooms.get(currentRoomId).name : null,
-    previousRoom: previousRoomId ? previousRoomId.slice(0, 8) : null,
+    previousRoom: shortRoomId(previousRoomId),
     movementQueue: movementIntents.map((intent) => ({
       seq: intent.seq,
       direction: intent.direction,
