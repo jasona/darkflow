@@ -931,7 +931,6 @@ export const panelRenderers = {
       entry.appendChild(talkerEl);
       entry.appendChild(document.createTextNode(' '));
 
-      if (!fragments.length && text) fragments = [{ text, style: {} }];
       for (const fragment of fragments) {
         const node = styleToElement(fragment.text, fragment.style || {});
         if (node) entry.appendChild(node);
