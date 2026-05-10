@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { renderMap } from './map-renderer.js';
 import { sendCommandText } from './input.js';
+import { parseAnsiText, styleToElement } from './ansi.js';
 
 let roomImageModal = null;
 let roomImageModalKeyHandler = null;
@@ -36,6 +37,25 @@ function formatStatusTitle(title, name) {
 
 function formatInt(n) {
   return typeof n === 'number' ? n.toLocaleString('en-US') : n;
+}
+
+function trimLeadingFragments(fragments, charCount) {
+  let remaining = Math.max(0, charCount);
+  const trimmed = [];
+  for (const fragment of fragments) {
+    if (!fragment || !fragment.text) continue;
+    if (remaining >= fragment.text.length) {
+      remaining -= fragment.text.length;
+      continue;
+    }
+    if (remaining > 0) {
+      trimmed.push({ ...fragment, text: fragment.text.slice(remaining) });
+      remaining = 0;
+      continue;
+    }
+    trimmed.push(fragment);
+  }
+  return trimmed;
 }
 
 function skyBoundarySeconds(value, scale) {
@@ -885,17 +905,37 @@ export const panelRenderers = {
       const ch = channelColor(msg.channel || '');
       const talker = msg.talker ? msg.talker.charAt(0).toUpperCase() + msg.talker.slice(1) : '';
       // Strip redundant prefix from text — the panel already shows channel and talker
-      let text = msg.text || '';
+      let fragments = parseAnsiText(msg.text || '');
+      let text = fragments.map((fragment) => fragment.text).join('');
       // Patterns: "[Channel] Name: text", "[Channel] (Role) Name: text", "Name shouts: text"
       const talkerEsc = (msg.talker || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       if (talkerEsc) {
         // Strip everything up to and including "TalkerName: " or "TalkerName shouts: "
         const re = new RegExp('^(\\[\\S+\\]\\s+)?(\\(\\w+\\)\\s+)?' + talkerEsc + '(\\s+\\w+)?:\\s*', 'i');
-        text = text.replace(re, '');
+        const match = text.match(re);
+        if (match) {
+          fragments = trimLeadingFragments(fragments, match[0].length);
+          text = text.slice(match[0].length);
+        }
       }
-      entry.innerHTML = '<span class="chat-channel" style="color:' + ch + '">[' + escHtml(msg.channel) + ']</span> '
-        + '<span class="chat-talker">' + escHtml(talker) + ':</span> '
-        + escHtml(text);
+      const channelEl = document.createElement('span');
+      channelEl.className = 'chat-channel';
+      channelEl.style.color = ch;
+      channelEl.textContent = '[' + (msg.channel || '') + ']';
+      entry.appendChild(channelEl);
+      entry.appendChild(document.createTextNode(' '));
+
+      const talkerEl = document.createElement('span');
+      talkerEl.className = 'chat-talker';
+      talkerEl.textContent = talker + ':';
+      entry.appendChild(talkerEl);
+      entry.appendChild(document.createTextNode(' '));
+
+      if (!fragments.length && text) fragments = [{ text, style: {} }];
+      for (const fragment of fragments) {
+        const node = styleToElement(fragment.text, fragment.style || {});
+        if (node) entry.appendChild(node);
+      }
       log.appendChild(entry);
     }
 

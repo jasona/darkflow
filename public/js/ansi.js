@@ -1,41 +1,45 @@
 import { FG_NAMES, BRIGHT_FG_NAMES, DEFAULT_FG, DEFAULT_BG, COLOR_256 } from './constants.js';
 
-const ansi = {
-  buffer: '',
-  bold: false,
-  underline: false,
-  inverse: false,
-  blink: false,
-  fg: null,
-  bg: null,
-  href: null,
+function createAnsiState() {
+  return {
+    buffer: '',
+    bold: false,
+    underline: false,
+    inverse: false,
+    blink: false,
+    fg: null,
+    bg: null,
+    href: null,
 
-  reset() {
-    this.bold = false;
-    this.underline = false;
-    this.inverse = false;
-    this.blink = false;
-    this.fg = null;
-    this.bg = null;
-  },
+    reset() {
+      this.bold = false;
+      this.underline = false;
+      this.inverse = false;
+      this.blink = false;
+      this.fg = null;
+      this.bg = null;
+    },
 
-  snapshot() {
-    return { bold: this.bold, underline: this.underline, inverse: this.inverse,
-             blink: this.blink, fg: this.fg, bg: this.bg };
-  }
-};
+    snapshot() {
+      return { bold: this.bold, underline: this.underline, inverse: this.inverse,
+               blink: this.blink, fg: this.fg, bg: this.bg };
+    }
+  };
+}
 
-export function parseAnsi(text) {
-  text = ansi.buffer + text;
-  ansi.buffer = '';
+const ansi = createAnsiState();
+
+export function parseAnsi(text, parserState = ansi) {
+  text = parserState.buffer + text;
+  parserState.buffer = '';
 
   const fragments = [];
   let plain = '';
   let i = 0;
   const flushPlain = () => {
     if (!plain) return;
-    const fragment = { text: plain, style: ansi.snapshot() };
-    if (ansi.href) fragment.href = ansi.href;
+    const fragment = { text: plain, style: parserState.snapshot() };
+    if (parserState.href) fragment.href = parserState.href;
     fragments.push(fragment);
     plain = '';
   };
@@ -43,7 +47,7 @@ export function parseAnsi(text) {
   while (i < text.length) {
     if (text.charCodeAt(i) === 0x1b) {
       if (i + 1 >= text.length) {
-        ansi.buffer = text.slice(i);
+        parserState.buffer = text.slice(i);
         break;
       }
       if (text[i + 1] === '[') {
@@ -52,7 +56,7 @@ export function parseAnsi(text) {
           j++;
         }
         if (j >= text.length) {
-          ansi.buffer = text.slice(i);
+          parserState.buffer = text.slice(i);
           break;
         }
         const finalByte = text.charCodeAt(j);
@@ -69,37 +73,37 @@ export function parseAnsi(text) {
           let p = 0;
           while (p < params.length) {
             const code = params[p];
-            if (code === 0) { ansi.reset(); }
-            else if (code === 1) { ansi.bold = true; }
-            else if (code === 4) { ansi.underline = true; }
-            else if (code === 5) { ansi.blink = true; }
-            else if (code === 7) { ansi.inverse = true; }
-            else if (code === 22) { ansi.bold = false; }
-            else if (code === 24) { ansi.underline = false; }
-            else if (code === 25) { ansi.blink = false; }
-            else if (code === 27) { ansi.inverse = false; }
-            else if (code >= 30 && code <= 37) { ansi.fg = { type: 'standard', index: code - 30 }; }
+            if (code === 0) { parserState.reset(); }
+            else if (code === 1) { parserState.bold = true; }
+            else if (code === 4) { parserState.underline = true; }
+            else if (code === 5) { parserState.blink = true; }
+            else if (code === 7) { parserState.inverse = true; }
+            else if (code === 22) { parserState.bold = false; }
+            else if (code === 24) { parserState.underline = false; }
+            else if (code === 25) { parserState.blink = false; }
+            else if (code === 27) { parserState.inverse = false; }
+            else if (code >= 30 && code <= 37) { parserState.fg = { type: 'standard', index: code - 30 }; }
             else if (code === 38 && params[p+1] === 5 && p + 2 < params.length) {
-              ansi.fg = { type: '256', index: params[p+2] };
+              parserState.fg = { type: '256', index: params[p+2] };
               p += 2;
             }
             else if (code === 38 && params[p+1] === 2 && p + 4 < params.length && isRgb(params[p+2], params[p+3], params[p+4])) {
-              ansi.fg = { type: 'rgb', r: params[p+2], g: params[p+3], b: params[p+4] };
+              parserState.fg = { type: 'rgb', r: params[p+2], g: params[p+3], b: params[p+4] };
               p += 4;
             }
-            else if (code === 39) { ansi.fg = null; }
-            else if (code >= 40 && code <= 47) { ansi.bg = { type: 'standard', index: code - 40 }; }
+            else if (code === 39) { parserState.fg = null; }
+            else if (code >= 40 && code <= 47) { parserState.bg = { type: 'standard', index: code - 40 }; }
             else if (code === 48 && params[p+1] === 5 && p + 2 < params.length) {
-              ansi.bg = { type: '256', index: params[p+2] };
+              parserState.bg = { type: '256', index: params[p+2] };
               p += 2;
             }
             else if (code === 48 && params[p+1] === 2 && p + 4 < params.length && isRgb(params[p+2], params[p+3], params[p+4])) {
-              ansi.bg = { type: 'rgb', r: params[p+2], g: params[p+3], b: params[p+4] };
+              parserState.bg = { type: 'rgb', r: params[p+2], g: params[p+3], b: params[p+4] };
               p += 4;
             }
-            else if (code === 49) { ansi.bg = null; }
-            else if (code >= 90 && code <= 97) { ansi.fg = { type: 'bright', index: code - 90 }; }
-            else if (code >= 100 && code <= 107) { ansi.bg = { type: 'bright', index: code - 100 }; }
+            else if (code === 49) { parserState.bg = null; }
+            else if (code >= 90 && code <= 97) { parserState.fg = { type: 'bright', index: code - 90 }; }
+            else if (code >= 100 && code <= 107) { parserState.bg = { type: 'bright', index: code - 100 }; }
             p++;
           }
         }
@@ -120,7 +124,7 @@ export function parseAnsi(text) {
           j++;
         }
         if (!terminatorLength) {
-          ansi.buffer = text.slice(i);
+          parserState.buffer = text.slice(i);
           break;
         }
 
@@ -128,7 +132,7 @@ export function parseAnsi(text) {
 
         const osc = text.slice(i + 2, j);
         if (osc.slice(0, 3) === '8;;') {
-          ansi.href = osc.length > 3 ? osc.slice(3) : null;
+          parserState.href = osc.length > 3 ? osc.slice(3) : null;
         }
 
         i = j + terminatorLength;
@@ -144,6 +148,10 @@ export function parseAnsi(text) {
   flushPlain();
 
   return fragments;
+}
+
+export function parseAnsiText(text) {
+  return parseAnsi(String(text || ''), createAnsiState());
 }
 
 function isRgb(r, g, b) {
