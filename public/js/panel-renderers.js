@@ -238,6 +238,11 @@ export function renderVitalBar(bodyEl, label, cur, max) {
   fill.style.backgroundColor = vitalBarColor(pct);
 }
 
+function removeVitalBar(bodyEl, label) {
+  const row = bodyEl.querySelector('.vitals-' + label.toLowerCase());
+  if (row) row.remove();
+}
+
 export const panelRenderers = {
   sky(bodyEl, data) {
     if (!data || data.game_now === undefined || data.game_now === null) {
@@ -356,7 +361,10 @@ export const panelRenderers = {
     if (!data) return;
     if (bodyEl.querySelector('.placeholder')) bodyEl.innerHTML = '';
     renderVitalBar(bodyEl, 'HP', data.hp, data.maxhp);
-    renderVitalBar(bodyEl, 'SP', data.sp, data.maxsp);
+    const hasSpellpoints = Object.prototype.hasOwnProperty.call(data, 'sp') &&
+      Object.prototype.hasOwnProperty.call(data, 'maxsp');
+    if (hasSpellpoints) renderVitalBar(bodyEl, 'SP', data.sp, data.maxsp);
+    else removeVitalBar(bodyEl, 'SP');
   },
 
   omens(bodyEl, data) {

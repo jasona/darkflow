@@ -47,6 +47,16 @@ function normalizeChannelName(data) {
   return '';
 }
 
+function isFullVitalsPayload(data) {
+  if (!data || typeof data !== 'object') return false;
+  const hasBaseVitals = ['hp', 'maxhp', 'string']
+    .every(key => Object.prototype.hasOwnProperty.call(data, key));
+  if (!hasBaseVitals) return false;
+  const hasSp = Object.prototype.hasOwnProperty.call(data, 'sp');
+  const hasMaxSp = Object.prototype.hasOwnProperty.call(data, 'maxsp');
+  return hasSp === hasMaxSp;
+}
+
 export const panelManager = {
   state: { docks: { left: false, right: false }, panels: {} },
   panels: {},
@@ -989,8 +999,7 @@ export const panelManager = {
       'avatar_charge_pct', 'avatar_active_remaining', 'avatar_active_max']
       .some(key => Object.prototype.hasOwnProperty.call(data, key));
     if (!hasCharge) {
-      const looksFullRefresh = ['hp', 'maxhp', 'sp', 'maxsp', 'string']
-        .every(key => Object.prototype.hasOwnProperty.call(data, key));
+      const looksFullRefresh = isFullVitalsPayload(data);
       if (looksFullRefresh) {
         this._hideAvatarMeter();
       }
@@ -1537,8 +1546,7 @@ export const panelManager = {
   registerGmcpHandlers() {
     gmcp.on('Char.Vitals', (data) => {
       this._syncSubscriptionsAfterCharacterData();
-      const fullVitals = data && ['hp', 'maxhp', 'sp', 'maxsp', 'string']
-        .every(key => Object.prototype.hasOwnProperty.call(data, key));
+      const fullVitals = isFullVitalsPayload(data);
       this.gmcpData.vitals = fullVitals ? data : Object.assign({}, this.gmcpData.vitals || {}, data || {});
       this._updateAvatarMeter(this.gmcpData.vitals);
       this._renderPanel('vitals');
