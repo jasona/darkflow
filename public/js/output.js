@@ -266,7 +266,25 @@ function createLine(text, cssClass, fragments) {
 }
 
 function stylesEqual(a, b) {
-  return JSON.stringify(a || {}) === JSON.stringify(b || {});
+  const left = a || {};
+  const right = b || {};
+
+  return left.bold === right.bold
+    && left.underline === right.underline
+    && left.inverse === right.inverse
+    && left.blink === right.blink
+    && colorsEqual(left.fg, right.fg)
+    && colorsEqual(left.bg, right.bg);
+}
+
+function colorsEqual(a, b) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.type === b.type
+    && a.index === b.index
+    && a.r === b.r
+    && a.g === b.g
+    && a.b === b.b;
 }
 
 function appendFragment(target, fragment) {
