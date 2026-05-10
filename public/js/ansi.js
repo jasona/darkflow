@@ -151,7 +151,7 @@ export function parseAnsi(text, parserState = ansi) {
 }
 
 export function parseAnsiText(text) {
-  return parseAnsi(String(text || ''), createAnsiState());
+  return parseAnsi(text || '', createAnsiState());
 }
 
 function isRgb(r, g, b) {
