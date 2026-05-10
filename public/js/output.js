@@ -31,6 +31,7 @@ let isSplitActive = false;
 let lineStore = [];
 let nextLineId = 1;
 let pendingLines = [];
+let openOutputLine = null;
 let frameScheduled = false;
 let renderInvalidated = false;
 let scrollbackLimit = OUTPUT_SCROLLBACK_PRESETS[DEFAULT_OUTPUT_SCROLLBACK_PRESET];
@@ -264,24 +265,90 @@ function createLine(text, cssClass, fragments) {
   };
 }
 
-function buildLinesFromFragments(fragments, cssClass) {
-  const lines = [[]];
+function stylesEqual(a, b) {
+  return JSON.stringify(a || {}) === JSON.stringify(b || {});
+}
+
+function appendFragment(target, fragment) {
+  const text = String(fragment && fragment.text || '');
+  if (!text) return;
+
+  const next = {
+    text,
+    style: fragment.style || {},
+  };
+  if (fragment.href) next.href = fragment.href;
+
+  const last = target[target.length - 1];
+  if (last && last.href === next.href && stylesEqual(last.style, next.style)) {
+    last.text += next.text;
+    return;
+  }
+
+  target.push(next);
+}
+
+function createLineFromFragments(fragments, cssClass) {
+  const lineFragments = [];
+  let text = '';
+
+  for (const fragment of fragments || []) {
+    appendFragment(lineFragments, fragment);
+    text += String(fragment && fragment.text || '');
+  }
+
+  return createLine(text, cssClass, lineFragments);
+}
+
+function splitFragmentsIntoLines(fragments) {
+  const completedLines = [];
+  let trailingLine = [];
 
   for (const frag of fragments) {
     const parts = String(frag.text || '').replace(/\r/g, '').split('\n');
     for (let i = 0; i < parts.length; i++) {
-      if (i > 0) lines.push([]);
       if (parts[i]) {
-        lines[lines.length - 1].push({ text: parts[i], style: frag.style, href: frag.href });
+        appendFragment(trailingLine, { text: parts[i], style: frag.style, href: frag.href });
+      }
+      if (i < parts.length - 1) {
+        completedLines.push(trailingLine);
+        trailingLine = [];
       }
     }
   }
 
-  return lines.map((lineFrags) => createLine(
-    lineFrags.map((frag) => frag.text).join(''),
-    cssClass,
-    lineFrags
-  ));
+  return { completedLines, trailingLine };
+}
+
+function appendFragmentsToLine(line, fragments) {
+  if (!line || !Array.isArray(fragments) || !fragments.length) return;
+  for (const fragment of fragments) {
+    appendFragment(line.fragments, fragment);
+    line.text += String(fragment && fragment.text || '');
+  }
+  line.height = 0;
+}
+
+function syncLine(line, replacement) {
+  if (!line || !replacement) return;
+  line.text = replacement.text;
+  line.cssClass = replacement.cssClass;
+  line.fragments = replacement.fragments;
+  line.height = 0;
+}
+
+function removeLine(line) {
+  if (!line) return;
+  const pendingIndex = pendingLines.indexOf(line);
+  if (pendingIndex !== -1) {
+    pendingLines.splice(pendingIndex, 1);
+    return;
+  }
+
+  const storedIndex = lineStore.indexOf(line);
+  if (storedIndex !== -1) {
+    lineStore.splice(storedIndex, 1);
+  }
 }
 
 function buildSingleTextLine(text, cssClass) {
@@ -979,11 +1046,11 @@ export function appendOutput(text, cssClass) {
       style: fragment.style || {},
     })));
   }
-  const lines = buildLinesFromFragments(fragments, cssClass);
+  const { completedLines, trailingLine } = splitFragmentsIntoLines(fragments);
   if (shouldDebugOsc8(text)) {
-    debugOsc8Output('buildLinesFromFragments lines', lines.map((line) => ({
-      text: escapeDebugText(line.text),
-      fragments: line.fragments.map((fragment) => ({
+    debugOsc8Output('splitFragmentsIntoLines lines', completedLines.map((lineFragments) => ({
+      text: escapeDebugText(lineFragments.map((fragment) => fragment.text).join('')),
+      fragments: lineFragments.map((fragment) => ({
         text: escapeDebugText(fragment.text),
         href: fragment.href || null,
         style: fragment.style || {},
@@ -993,18 +1060,47 @@ export function appendOutput(text, cssClass) {
   const scopeKey = triggerManager.getActiveScopeKey();
   const visibleLines = [];
 
-  for (const line of lines) {
+  for (const lineFragments of completedLines) {
+    const reusedOpenLine = Boolean(openOutputLine);
+    const line = openOutputLine || createLineFromFragments(lineFragments, cssClass);
+    if (reusedOpenLine) {
+      appendFragmentsToLine(line, lineFragments);
+      openOutputLine = null;
+    }
     attachGiphyReplay(line);
     const result = triggerManager.evaluateLine(line.text, scopeKey);
     if (result.matches.length) {
       executeTriggerMatches(result.matches, scopeKey);
     }
-    if (!result.gag) {
+    if (result.gag) {
+      removeLine(line);
+      invalidateRender();
+      continue;
+    }
+
+    const highlightedLine = highlightManager.applyHighlightsToLines([line], scopeKey)[0];
+    if (highlightedLine !== line) {
+      syncLine(line, highlightedLine);
+    }
+
+    if (reusedOpenLine) {
+      invalidateRender();
+    } else {
       visibleLines.push(line);
     }
   }
 
-  queueLines(highlightManager.applyHighlightsToLines(visibleLines));
+  if (trailingLine.length) {
+    if (openOutputLine) {
+      appendFragmentsToLine(openOutputLine, trailingLine);
+      invalidateRender();
+    } else {
+      openOutputLine = createLineFromFragments(trailingLine, cssClass);
+      visibleLines.push(openOutputLine);
+    }
+  }
+
+  queueLines(visibleLines);
 }
 
 export function appendSystemMessage(text) {
@@ -1018,6 +1114,7 @@ export function appendEcho(text) {
 export function clearOutput() {
   lineStore = [];
   pendingLines = [];
+  openOutputLine = null;
   nextLineId = 1;
   isScrollLocked = false;
   isOutputPaused = false;

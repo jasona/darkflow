@@ -230,6 +230,7 @@ wss.on('connection', (ws, req) => {
       flushPendingGmcp();
     }
   });
+  const upstreamTextDecoder = new TextDecoder('utf-8');
   let bytesUp = 0, bytesDown = 0;
   let upstream;
   try {
@@ -264,7 +265,10 @@ wss.on('connection', (ws, req) => {
     // Forward game text as a UTF-8 text frame so Darkflow's onmessage routes
     // it to appendOutput() rather than the GMCP dispatcher.
     if (text.length && ws.readyState === ws.OPEN) {
-      try { ws.send(text.toString('utf-8')); }
+      try {
+        const decodedText = upstreamTextDecoder.decode(text, { stream: true });
+        if (decodedText.length) ws.send(decodedText);
+      }
       catch (err) {
         logProxy({ event: 'ws-send-error', sourceIp, host, port, error: err.message });
       }
@@ -287,6 +291,13 @@ wss.on('connection', (ws, req) => {
   upstream.on('close', () => {
     logProxy({ event: 'upstream-close', sourceIp, host, port, bytesUp, bytesDown });
     if (ws.readyState === ws.OPEN) {
+      const trailingText = upstreamTextDecoder.decode();
+      if (trailingText.length) {
+        try { ws.send(trailingText); }
+        catch (err) {
+          logProxy({ event: 'ws-send-error', sourceIp, host, port, error: err.message });
+        }
+      }
       try { ws.close(1000, 'upstream closed'); } catch(e) {}
     }
   });
