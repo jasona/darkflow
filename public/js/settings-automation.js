@@ -1679,6 +1679,7 @@ export function createAutomationEditor(host, kind) {
   // ---- layout --------------------------------------------------------
   const layout = el('div', 'settings-automation-layout');
   const listPane = el('div', 'settings-automation-list-pane');
+  listPane.dataset.editFocusScope = cfg.kind + '-editor';
   const list = el('div', 'settings-automation-list');
   const listActions = el('div', 'settings-automation-list-actions');
   listPane.appendChild(list);
@@ -1740,8 +1741,7 @@ export function createAutomationEditor(host, kind) {
   const checkedGroupKeys = new Set();
   const seenGroupKeys = new Set();
 
-  const ensureSelected = () => {
-    const items = cfg.list();
+  const ensureSelected = (items = cfg.list()) => {
     if (!items.length) {
       selectedId = null;
       return null;
@@ -1754,8 +1754,10 @@ export function createAutomationEditor(host, kind) {
 
   const selectedIndex = () => cfg.list().findIndex((item) => item.id === selectedId);
 
+  const visibleItems = () => cfg.list().filter((item) => itemMatchesFilters(item));
+
   const renderPreviewBody = () => {
-    const summary = cfg.preview.render(previewResults, sample, ensureSelected());
+    const summary = cfg.preview.render(previewResults, sample, ensureSelected(visibleItems()));
     previewSummary.textContent = summary || '';
   };
 
@@ -1828,7 +1830,7 @@ export function createAutomationEditor(host, kind) {
         if (input.checked) checkedGroupKeys.add(group.key);
         else checkedGroupKeys.delete(group.key);
         pill.classList.toggle('on', input.checked);
-        renderList();
+        render();
       });
       pill.appendChild(input);
       pill.appendChild(document.createTextNode(group.label + ' (' + group.count + ')'));
@@ -1841,8 +1843,10 @@ export function createAutomationEditor(host, kind) {
   // ---- list -------------------------------------------------------------
   const renderListActions = () => {
     listActions.textContent = '';
-    const items = cfg.list();
-    const index = selectedIndex();
+    const items = visibleItems();
+    const current = ensureSelected(items);
+    const allItems = cfg.list();
+    const index = current ? allItems.findIndex((item) => item.id === current.id) : -1;
     const hasSelection = index >= 0;
 
     const moveBtn = (label, title, offset, disabled) => {
@@ -1862,7 +1866,7 @@ export function createAutomationEditor(host, kind) {
     };
 
     listActions.appendChild(moveBtn('Up', 'Move ' + cfg.noun + ' earlier (matches and runs first)', -1, !hasSelection || index <= 0));
-    listActions.appendChild(moveBtn('Down', 'Move ' + cfg.noun + ' later', 1, !hasSelection || index >= items.length - 1));
+    listActions.appendChild(moveBtn('Down', 'Move ' + cfg.noun + ' later', 1, !hasSelection || index >= allItems.length - 1));
 
     const dupBtn = smallButton('Duplicate', 'Duplicate the selected ' + cfg.noun, () => {
       const current = ensureSelected();
@@ -1879,11 +1883,12 @@ export function createAutomationEditor(host, kind) {
     listActions.appendChild(dupBtn);
 
     const removeBtn = smallButton('Delete', 'Delete the selected ' + cfg.noun, () => {
-      const current = ensureSelected();
+      const visibleBeforeDelete = visibleItems();
+      const current = ensureSelected(visibleBeforeDelete);
       if (!current) return;
-      const index2 = selectedIndex();
+      const index2 = visibleBeforeDelete.findIndex((item) => item.id === current.id);
       cfg.replaceList(cfg.list().filter((item) => item.id !== current.id));
-      const items2 = cfg.list();
+      const items2 = visibleItems();
       const next = items2[Math.min(index2, items2.length - 1)];
       selectedId = next ? next.id : null;
       render();
@@ -1900,7 +1905,8 @@ export function createAutomationEditor(host, kind) {
 
     const groups = renderGroupFilters();
     const items = cfg.list();
-    const filtered = items.filter((item) => itemMatchesFilters(item));
+    const filtered = visibleItems();
+    ensureSelected(filtered);
 
     const focusByOffset = (index, offset) => {
       if (!filtered.length) return;
@@ -1913,15 +1919,20 @@ export function createAutomationEditor(host, kind) {
     filtered.forEach((item, index) => {
       const selected = item.id === selectedId;
       const row = el('div', 'settings-alias-list-item' + (selected ? ' active' : ''));
+      const selectRow = () => {
+        selectedId = item.id;
+        render();
+      };
+      row.addEventListener('click', (event) => {
+        if (event.target instanceof HTMLElement && event.target.closest('button,input,select,textarea,a')) return;
+        selectRow();
+      });
 
       const rowBtn = el('button', 'settings-alias-list-select');
       rowBtn.type = 'button';
       rowBtn.dataset.focusKey = cfg.kind + '-row-' + item.id;
       rowBtn.tabIndex = selected ? 0 : -1;
-      rowBtn.addEventListener('click', () => {
-        selectedId = item.id;
-        render();
-      });
+      rowBtn.addEventListener('click', selectRow);
       rowBtn.addEventListener('keydown', (event) => {
         if (event.key === 'ArrowDown') {
           event.preventDefault();
@@ -1984,7 +1995,7 @@ export function createAutomationEditor(host, kind) {
   // ---- detail ------------------------------------------------------------
   const renderDetail = () => {
     detail.textContent = '';
-    const item = ensureSelected();
+    const item = ensureSelected(visibleItems());
     if (!item) {
       detail.appendChild(el('div', 'settings-alias-empty', cfg.emptyDetailText));
       return;
@@ -2065,8 +2076,7 @@ export function createAutomationEditor(host, kind) {
     groupInput.value = item.group || '';
     groupInput.addEventListener('input', () => {
       item.group = groupInput.value;
-      renderGroupFilters();
-      renderList();
+      render();
     });
     groupField.appendChild(groupInput);
     metaGrid.appendChild(groupField);
@@ -2080,7 +2090,7 @@ export function createAutomationEditor(host, kind) {
     const selectionStart = search.selectionStart;
     const selectionEnd = search.selectionEnd;
     searchTerm = search.value;
-    renderList();
+    render();
     host._focusSettingsTextControl(cfg.kind + '-search', selectionStart, selectionEnd);
   });
 
