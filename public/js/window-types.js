@@ -9,7 +9,18 @@ export const DW_WINDOW_CLOSED = 'Darkwind.Window.Closed';
 // Element type sets for identification
 export const LAYOUT_TYPES = new Set(['vertical', 'horizontal', 'grid']);
 export const INPUT_TYPES = new Set(['text', 'password', 'number', 'select', 'checkbox', 'button', 'hidden']);
-export const DISPLAY_TYPES = new Set(['heading', 'paragraph', 'text', 'divider', 'progress', 'image', 'youtube_embed', 'player_row', 'finger_profile']);
+export const DISPLAY_TYPES = new Set([
+  'heading',
+  'paragraph',
+  'text',
+  'ansi_text',
+  'divider',
+  'progress',
+  'image',
+  'youtube_embed',
+  'player_row',
+  'finger_profile',
+]);
 
 // Button actions
 export const ACTION_SUBMIT = 'submit';

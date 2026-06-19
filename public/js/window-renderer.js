@@ -1,4 +1,5 @@
 import { LAYOUT_TYPES, INPUT_TYPES, DISPLAY_TYPES, STYLE_ALLOWLIST } from './window-types.js';
+import { parseAnsiText, styleToElement } from './ansi.js';
 
 // ── Style helpers ───────────────────────────────────────────────────
 export function applyStyle(el, styleObj) {
@@ -84,6 +85,8 @@ function renderDisplay(schema) {
       setAttr(el, schema);
       return el;
     }
+    case 'ansi_text':
+      return renderAnsiText(schema);
     case 'divider': {
       const el = document.createElement('hr');
       el.className = 'dw-divider';
@@ -162,6 +165,19 @@ function renderDisplay(schema) {
       return el;
     }
   }
+}
+
+function renderAnsiText(schema) {
+  const el = document.createElement('pre');
+  el.className = 'dw-ansi-text';
+  setAttr(el, schema);
+
+  const fragments = parseAnsiText(schema.text || '');
+  for (const fragment of fragments) {
+    el.appendChild(styleToElement(fragment.text, fragment.style || {}));
+  }
+
+  return el;
 }
 
 function renderFingerProfile(schema) {
