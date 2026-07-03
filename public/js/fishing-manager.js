@@ -85,7 +85,10 @@ export const fishingManager = {
       sceneArtUrl: data.sceneArtUrl || null,
     };
     this._reset(this.session.baited ? 'ready' : 'nobait');
+    // createPanel only invokes the renderer when gmcpData[id] is set.
+    panelManager.gmcpData.fishing = { session: this.session.id };
     panelManager.openPanel('fishing');
+    panelManager._renderPanel('fishing');
     this._render();
   },
 
