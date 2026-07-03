@@ -167,7 +167,8 @@ export const gmcp = {
       'Darkwind.Sound 1',
       'Darkwind.Broadcast 1',
       'Darkwind.LinuxRescue 1',
-      'Darkwind.Lag 1'
+      'Darkwind.Lag 1',
+      'Darkwind.Fishing 1'
     ]);
     this.enabled = true;
   },

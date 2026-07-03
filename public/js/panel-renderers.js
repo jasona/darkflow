@@ -10,6 +10,7 @@ import {
   isImageFileUrl,
   openImagePreviewPane,
 } from './image-preview.js';
+import { fishingManager } from './fishing-manager.js';
 
 let roomImageModal = null;
 let roomImageModalKeyHandler = null;
@@ -427,6 +428,10 @@ function renderGuildVitalBars(bodyEl, bars) {
 }
 
 export const panelRenderers = {
+  fishing(bodyEl) {
+    fishingManager.render(bodyEl);
+  },
+
   sky(bodyEl, data) {
     if (!data || data.game_now === undefined || data.game_now === null) {
       bodyEl.innerHTML = '<div class="placeholder">Waiting for sky...</div>';

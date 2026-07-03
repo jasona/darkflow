@@ -1,0 +1,312 @@
+/* fishing.css - the interactive fishing pane (Darkwind.Fishing). */
+
+.fishing-body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 260px;
+}
+
+.fishing-stage {
+  position: relative;
+  flex: 1;
+  min-height: 240px;
+  overflow: hidden;
+  border-radius: 6px;
+  outline: none;
+  user-select: none;
+  touch-action: none;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--df-accent) 12%, var(--df-panel)) 0%,
+    color-mix(in srgb, #1a4b6e 45%, var(--df-panel)) 55%,
+    color-mix(in srgb, #0c2a40 65%, var(--df-panel)) 100%);
+}
+
+.fishing-stage[data-terrain="swamp"] {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, #4c5b32 30%, var(--df-panel)) 0%,
+    color-mix(in srgb, #2e401e 55%, var(--df-panel)) 60%,
+    color-mix(in srgb, #16240e 70%, var(--df-panel)) 100%);
+}
+.fishing-stage[data-terrain="sea"],
+.fishing-stage[data-terrain="underwater"] {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, #10547e 35%, var(--df-panel)) 0%,
+    color-mix(in srgb, #0a3a5e 60%, var(--df-panel)) 55%,
+    color-mix(in srgb, #051f36 75%, var(--df-panel)) 100%);
+}
+.fishing-stage[data-terrain="beach"] {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, #d9b26a 22%, var(--df-panel)) 0%,
+    color-mix(in srgb, #2a7ca8 50%, var(--df-panel)) 55%,
+    color-mix(in srgb, #12496e 65%, var(--df-panel)) 100%);
+}
+
+.fishing-scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.85;
+}
+
+.fishing-water {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 45%;
+  background: repeating-linear-gradient(
+    -8deg,
+    transparent 0 14px,
+    color-mix(in srgb, var(--df-text) 6%, transparent) 14px 16px);
+  animation: fishing-waves 6s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes fishing-waves {
+  from { background-position: 0 0; }
+  to { background-position: 80px 0; }
+}
+
+/* Bobber */
+.fishing-bobber {
+  position: absolute;
+  left: 50%;
+  top: 58%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #d43c3c;
+  border: 2px solid color-mix(in srgb, var(--df-text) 80%, transparent);
+  animation: fishing-bob 2.4s ease-in-out infinite;
+}
+.fishing-bobber-top {
+  position: absolute;
+  top: -2px; left: 3px;
+  width: 8px; height: 7px;
+  border-radius: 50% 50% 0 0;
+  background: color-mix(in srgb, var(--df-text) 85%, transparent);
+}
+@keyframes fishing-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(5px); }
+}
+.fishing-stage[data-phase="bite"] .fishing-bobber {
+  animation: fishing-plunge 0.35s ease-in-out infinite;
+}
+@keyframes fishing-plunge {
+  0%, 100% { transform: translateY(4px); }
+  50% { transform: translateY(14px); }
+}
+
+.fishing-exclaim {
+  position: absolute;
+  left: 50%;
+  top: 30%;
+  transform: translateX(-50%);
+  font-size: 44px;
+  font-weight: 900;
+  color: var(--df-warn, #ffb300);
+  text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+  animation: fishing-exclaim 0.4s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+@keyframes fishing-exclaim {
+  from { transform: translateX(-50%) scale(1); }
+  to { transform: translateX(-50%) scale(1.3); }
+}
+
+/* Fight view */
+.fishing-fightview {
+  position: absolute;
+  inset: 10px;
+  display: flex;
+  gap: 10px;
+}
+
+.fishing-track {
+  position: relative;
+  width: 64px;
+  flex: none;
+  height: 100%;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--df-bg) 55%, transparent);
+  border: 1px solid var(--df-border);
+  overflow: hidden;
+}
+
+.fishing-bar {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 20%;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--df-ok, #4caf50) 45%, transparent);
+  border: 1px solid var(--df-ok, #4caf50);
+  will-change: transform;
+}
+
+.fishing-fish {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  color: var(--df-text);
+  will-change: transform;
+}
+.fishing-fish img {
+  width: 42px;
+  height: 27px;
+}
+.fish-running .fishing-fish img {
+  filter: drop-shadow(0 0 6px var(--df-warn, #ffb300));
+}
+
+.fishing-meters {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  justify-content: flex-end;
+  padding-bottom: 4px;
+}
+
+.fishing-meter {
+  position: relative;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid var(--df-border);
+  background: color-mix(in srgb, var(--df-bg) 55%, transparent);
+  overflow: hidden;
+}
+.fishing-meter span {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding-left: 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--df-text);
+  opacity: 0.85;
+  pointer-events: none;
+}
+.fishing-meter-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--df-accent);
+  transition: none;
+}
+.fishing-progress .fishing-meter-fill { background: var(--df-ok, #4caf50); }
+.fishing-tension .fishing-meter-fill { background: var(--df-accent); }
+.fishing-tension .fishing-meter-fill.warn { background: var(--df-warn, #ffb300); }
+.fishing-tension .fishing-meter-fill.hot { background: var(--df-err, #e53935); }
+
+/* Trophy card */
+.fishing-trophy {
+  position: absolute;
+  inset: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 10px;
+  border: 2px solid var(--fishing-rarity, var(--df-border));
+  background: color-mix(in srgb, var(--df-panel) 88%, transparent);
+  animation: fishing-trophy-in 0.45s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+@keyframes fishing-trophy-in {
+  from { transform: scale(0.6); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.fishing-trophy-art {
+  max-width: 70%;
+  max-height: 55%;
+  border-radius: 8px;
+  color: var(--df-text);
+}
+.fishing-trophy-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--fishing-rarity, var(--df-text));
+}
+.fishing-trophy-details {
+  font-size: 12px;
+  color: var(--df-text);
+  opacity: 0.85;
+}
+.fishing-trophy.pristine {
+  box-shadow: 0 0 18px color-mix(in srgb, var(--fishing-rarity, gold) 60%, transparent);
+}
+
+/* Message + status */
+.fishing-message {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 8px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--df-text);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  pointer-events: none;
+}
+.fishing-status {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 6px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--df-ok, #4caf50);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  pointer-events: none;
+}
+
+/* Cast power */
+.fishing-powerwrap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 14px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 12px;
+}
+.fishing-power {
+  width: 18px;
+  height: 90px;
+  border-radius: 6px;
+  border: 1px solid var(--df-border);
+  background: color-mix(in srgb, var(--df-bg) 55%, transparent);
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+.fishing-power-fill {
+  width: 100%;
+  height: 0%;
+  background: var(--df-accent);
+}
+.fishing-power-fill.hot { background: var(--df-warn, #ffb300); }
+.fishing-cast-btn {
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid var(--df-border);
+  background: var(--df-accent);
+  color: var(--df-bg);
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: none;
+}
+.fishing-cast-btn:active { transform: scale(0.96); }
+
+@media (max-width: 700px) {
+  .fishing-body { min-height: 300px; }
+  .fishing-track { width: 84px; }
+  .fishing-fish img { width: 52px; height: 33px; }
+}

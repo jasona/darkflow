@@ -40,6 +40,10 @@ export const PANEL_DEFS = {
                defaultFloatW: 900, defaultFloatH: 620,
                defaultLayer: 5,
                defaultVisible: false },
+  fishing:   { title: 'Fishing',   defaultDock: 'float', defaultOrder: 4,
+               defaultFloatW: 420, defaultFloatH: 500,
+               defaultLayer: 2,
+               defaultVisible: false },
 };
 
 export const PANEL_STORAGE_KEY = 'darkwind-panel-state';
