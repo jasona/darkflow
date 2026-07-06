@@ -42,6 +42,27 @@
     color-mix(in srgb, #12496e 65%, var(--df-panel)) 100%);
 }
 
+/* Always-visible close for the game window */
+.fishing-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, #ffffff 25%, transparent);
+  background: rgba(0, 0, 0, 0.45);
+  color: #e8edf2;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.fishing-close:hover {
+  background: rgba(0, 0, 0, 0.7);
+  border-color: color-mix(in srgb, #ffffff 50%, transparent);
+}
+
 .fishing-scene {
   position: absolute;
   inset: 0;

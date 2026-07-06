@@ -233,6 +233,7 @@ export const fishingManager = {
     stage.dataset.terrain = '';
 
     stage.innerHTML = `
+      <button type="button" class="fishing-close" title="Stop fishing">&#x2715;</button>
       <img class="fishing-scene" alt="" draggable="false">
       <div class="fishing-water"></div>
       <div class="fishing-bobber"><div class="fishing-bobber-top"></div></div>
@@ -266,6 +267,7 @@ export const fishingManager = {
 
     this.els = {
       stage,
+      closeBtn: stage.querySelector('.fishing-close'),
       scene: stage.querySelector('.fishing-scene'),
       bobber: stage.querySelector('.fishing-bobber'),
       splashfx: stage.querySelector('.fishing-splashfx'),
@@ -309,9 +311,15 @@ export const fishingManager = {
     this.els.castBtn.addEventListener('pointerup', castUp);
     this.els.castBtn.addEventListener('pointercancel', castUp);
 
+    // Close: ends the session (the panel close handler sends Cancel).
+    this.els.closeBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      panelManager.closePanel('fishing');
+    });
+
     // Stage input: hook taps and fight hold/release.
     stage.addEventListener('pointerdown', (ev) => {
-      if (ev.target === this.els.castBtn) return;
+      if (ev.target === this.els.castBtn || ev.target === this.els.closeBtn) return;
       stage.focus();
       if (this.phase === 'bite') { ev.preventDefault(); this._sendHook(); return; }
       if (this.phase === 'fight') { ev.preventDefault(); this.held = true; }
