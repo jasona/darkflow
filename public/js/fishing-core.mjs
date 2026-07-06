@@ -53,6 +53,7 @@ export function createFightSim(params, seed) {
   let target = 55;
   let retargetIn = 0.6;
   let runFor = 0;
+  let graceLeft = 0;
 
   function retarget() {
     target = 5 + rand() * 90;
@@ -75,24 +76,31 @@ export function createFightSim(params, seed) {
       if (runFor <= 0) st.running = false;
     }
 
-    // Fish movement toward target.
+    // Fish movement: velocity eases toward the target (no instant flips)
+    // and slows as it arrives, so the fish is trackable between runs.
     const speed = (8 + strength * 5) * tired * (st.running ? 2.6 : 1);
-    const dir = target > st.fishPos ? 1 : -1;
-    st.fishVel = dir * speed;
+    const dist = target - st.fishPos;
+    const desired = Math.sign(dist) * speed * Math.min(1, Math.abs(dist) / 6);
+    st.fishVel += (desired - st.fishVel) * Math.min(1, 6 * dt);
     st.fishPos += st.fishVel * dt;
     if (st.fishPos < 2) st.fishPos = 2;
     if (st.fishPos > 98) st.fishPos = 98;
 
-    // Player bar.
-    st.barVel += (held ? 300 : -260) * dt;
-    if (st.barVel > 170) st.barVel = 170;
-    if (st.barVel < -170) st.barVel = -170;
+    // Player bar: acceleration against strong drag. Drag caps the speed
+    // (~87 up, ~79 down) and bleeds momentum the moment input changes, so
+    // the bar is steerable instead of ballistic.
+    st.barVel += (held ? 330 : -300) * dt;
+    st.barVel /= 1 + 3.8 * dt;
     st.barPos += st.barVel * dt;
     if (st.barPos < barSize / 2) { st.barPos = barSize / 2; st.barVel *= -0.25; }
     if (st.barPos > 100 - barSize / 2) { st.barPos = 100 - barSize / 2; st.barVel *= -0.25; }
 
-    // Overlap, progress, stamina.
-    const overlap = Math.abs(st.barPos - st.fishPos) <= barSize / 2 + 2;
+    // Overlap, progress, stamina. Losing the fish is forgiven for a short
+    // grace window (coyote time) so human reaction lag drains nothing.
+    const touching = Math.abs(st.barPos - st.fishPos) <= barSize / 2 + 3;
+    if (touching) graceLeft = 0.3;
+    else graceLeft = Math.max(0, graceLeft - dt);
+    const overlap = touching || graceLeft > 0;
     if (overlap) {
       st.progress += progressRate * dt;
       st.stamina = Math.max(0, st.stamina - 6 * dt);
