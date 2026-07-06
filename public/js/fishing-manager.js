@@ -47,6 +47,69 @@ const FISH_SILHOUETTE_SVG =
     '<circle cx="42" cy="17" r="2" fill="var(--df-panel, #111)"/></svg>'
   );
 
+const WAITING_FLAVOR_INTERVAL_MS = 2600;
+const WAITING_FLAVOR_TEXT = [
+  'Reconsidering every life choice that led to this worm.',
+  'Whispering motivational speeches to the bobber.',
+  'Trying to look casual for the fish.',
+  'Quietly judging the lake for taking its time.',
+  'Pretending this was the exact spot you meant to cast.',
+  'Inventing a believable story about the one that got away.',
+  'Making intense eye contact with the horizon.',
+  'Checking whether patience is a trainable skill.',
+  'Waiting for a fish with a packed calendar to become available.',
+  'Practicing your heroic trophy pose.',
+  'Offering the bait a generous severance package.',
+  'Listening for tiny underwater negotiations.',
+  'Hoping the fish appreciate dramatic timing.',
+  'Preparing to blame the wind.',
+  'Mentally composing a song about damp boots.',
+  'Trying not to sneeze directly at destiny.',
+  'Debating whether the bobber is moving or just mocking you.',
+  'Wondering if fish respect confidence.',
+  'Letting the bait network with local professionals.',
+  'Doing absolutely nothing with tremendous focus.',
+  'Giving the water a stern but fair performance review.',
+  'Waiting for the fish to finish its side quest.',
+  'Polishing your imaginary angler trophy.',
+  'Trying to remember if you fed the pack mule.',
+  'Maintaining plausible deniability about your technique.',
+  'Letting suspense marinate.',
+  'Convincing nearby weeds you are not available.',
+  'Silently negotiating with bubbles.',
+  'Keeping your casting arm emotionally available.',
+  'Checking if the fish read the patch notes.',
+  'Letting the worm find its audience.',
+  'Imagining the fish forming a committee.',
+  'Practicing a humble nod for when this works.',
+  'Waiting for the lake to stop being dramatic.',
+  'Pretending the splash earlier was part of the plan.',
+  'Calculating the snack-to-fish exchange rate.',
+  'Giving the bobber space to express itself.',
+  'Staring at the water like it owes you money.',
+  'Trying to appear less delicious to mosquitoes.',
+  'Drafting a strongly worded letter to trout leadership.',
+  'Wondering if the bait has union representation.',
+  'Letting the fish build anticipation.',
+  'Respecting the ancient art of standing very still.',
+  'Quietly hoping nobody saw that cast.',
+  'Waiting for an aquatic volunteer.',
+  'Rehearsing your victory grunt.',
+  'Counting ripples with suspicious intensity.',
+  'Giving the local fish community time to RSVP.',
+  'Pretending this is meditation with consequences.',
+  'Looking busy in case the fish are watching.',
+];
+
+function shuffleWaitingFlavor() {
+  const deck = WAITING_FLAVOR_TEXT.slice();
+  for (let i = deck.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  return deck;
+}
+
 export const fishingManager = {
   session: null,      // { id, terrain, skill, baited, sceneArtUrl }
   phase: 'idle',      // idle|ready|casting|waiting|bite|fight|caught|escaped
@@ -56,6 +119,9 @@ export const fishingManager = {
   _lastTs: 0,
   _castStart: 0,
   _biteTimer: 0,
+  _waitingFlavorTimer: 0,
+  _waitingFlavorText: '',
+  _waitingFlavorDeck: [],
   _bodyEl: null,
   els: null,
   artCache: {},       // species id -> url
@@ -97,6 +163,7 @@ export const fishingManager = {
 
   _onBite(data) {
     if (!this._isCurrent(data) || this.phase !== 'waiting') return;
+    this._stopWaitingFlavor();
     this.phase = 'bite';
     this._biteTimer = data.windowMs || 2500;
     this._biteWindow = this._biteTimer;
@@ -184,6 +251,7 @@ export const fishingManager = {
 
   _reset(phase) {
     this._stopLoop();
+    this._stopWaitingFlavor();
     soundManager.stopById(REEL_LOOP_ID);
     this.phase = phase;
     this.sim = null;
@@ -199,6 +267,7 @@ export const fishingManager = {
     soundManager.play('fishing', 'cast');
     this.phase = 'waiting';
     this.session.baited = false;
+    this._startWaitingFlavor();
     this._render();
   },
 
@@ -250,6 +319,23 @@ export const fishingManager = {
       <div class="fishing-splashfx"><span></span><span></span><span></span><span></span><span></span><span></span></div>
       <div class="fishing-exclaim">!</div>
       <div class="fishing-bitebar"><div class="fishing-bitebar-fill"></div></div>
+      <div class="fishing-bitehelp">
+        <div class="fishing-bitehelp-kicker">Bite</div>
+        <div class="fishing-bitehelp-title">A fish is on the line</div>
+        <div class="fishing-bitehelp-action">Tap, click, or press Space before the timer runs out.</div>
+      </div>
+      <div class="fishing-waiting">
+        <div class="fishing-waiting-kicker">Line cast</div>
+        <div class="fishing-waiting-title">Waiting for a bite</div>
+        <div class="fishing-waiting-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+        <div class="fishing-waiting-flavor"></div>
+      </div>
+      <div class="fishing-hooking">
+        <div class="fishing-hooking-kicker">Fish hooked</div>
+        <div class="fishing-hooking-title">Getting it on the line</div>
+        <div class="fishing-hooking-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+        <div class="fishing-hooking-help">Get ready to hold and release when the fight starts.</div>
+      </div>
       <div class="fishing-fightview">
         <div class="fishing-track">
           <div class="fishing-fish"><img src="${FISH_SILHOUETTE_SVG}" alt="" draggable="false"></div>
@@ -282,8 +368,12 @@ export const fishingManager = {
       bobber: stage.querySelector('.fishing-bobber'),
       splashfx: stage.querySelector('.fishing-splashfx'),
       exclaim: stage.querySelector('.fishing-exclaim'),
+      bitehelp: stage.querySelector('.fishing-bitehelp'),
       bitebar: stage.querySelector('.fishing-bitebar'),
       bitebarFill: stage.querySelector('.fishing-bitebar-fill'),
+      waiting: stage.querySelector('.fishing-waiting'),
+      waitingFlavor: stage.querySelector('.fishing-waiting-flavor'),
+      hooking: stage.querySelector('.fishing-hooking'),
       fightview: stage.querySelector('.fishing-fightview'),
       fish: stage.querySelector('.fishing-fish'),
       bar: stage.querySelector('.fishing-bar'),
@@ -301,25 +391,52 @@ export const fishingManager = {
       status: stage.querySelector('.fishing-status'),
     };
 
-    // Cast: hold the button, release to send with the oscillating power.
+    // Cast: hold anywhere in the visible cast controls, release to send with
+    // the oscillating power.
+    let castPointerId = null;
+    const clearCastPointer = () => {
+      document.removeEventListener('pointerup', castUp);
+      document.removeEventListener('pointercancel', castUp);
+      if (castPointerId !== null) {
+        try {
+          this.els.powerWrap.releasePointerCapture?.(castPointerId);
+        } catch (err) {
+          // Pointer capture may already be gone if the browser canceled it.
+        }
+        castPointerId = null;
+      }
+    };
     const castDown = (ev) => {
       if (this.phase !== 'ready') return;
       ev.preventDefault();
+      ev.stopPropagation();
+      castPointerId = ev.pointerId;
       this.phase = 'casting';
       this._castStart = performance.now();
-      this.els.castBtn.setPointerCapture?.(ev.pointerId);
+      this.els.powerWrap.setPointerCapture?.(ev.pointerId);
+      document.addEventListener('pointerup', castUp);
+      document.addEventListener('pointercancel', castUp);
       this._render();
       this._startLoop();
     };
     const castUp = (ev) => {
-      if (this.phase !== 'casting') return;
+      if (castPointerId !== null && ev.pointerId !== undefined &&
+        ev.pointerId !== castPointerId) {
+        return;
+      }
+      if (this.phase !== 'casting') {
+        clearCastPointer();
+        return;
+      }
       ev.preventDefault();
+      ev.stopPropagation();
       this._stopLoop();
+      clearCastPointer();
       this._sendCast(castPowerAt(performance.now() - this._castStart));
     };
-    this.els.castBtn.addEventListener('pointerdown', castDown);
-    this.els.castBtn.addEventListener('pointerup', castUp);
-    this.els.castBtn.addEventListener('pointercancel', castUp);
+    this.els.powerWrap.addEventListener('pointerdown', castDown);
+    this.els.powerWrap.addEventListener('pointerup', castUp);
+    this.els.powerWrap.addEventListener('pointercancel', castUp);
 
     // Close: ends the session (the panel close handler sends Cancel).
     this.els.closeBtn.addEventListener('click', (ev) => {
@@ -329,7 +446,8 @@ export const fishingManager = {
 
     // Stage input: hook taps and fight hold/release.
     stage.addEventListener('pointerdown', (ev) => {
-      if (ev.target === this.els.castBtn || ev.target === this.els.closeBtn) return;
+      if (ev.target === this.els.closeBtn ||
+        ev.target.closest('.fishing-powerwrap')) return;
       stage.focus();
       if (this.phase === 'bite') { ev.preventDefault(); this._sendHook(); return; }
       if (this.phase === 'fight') { ev.preventDefault(); this.held = true; }
@@ -371,9 +489,13 @@ export const fishingManager = {
 
     e.bobber.style.display = (phase === 'waiting' || phase === 'bite') ? '' : 'none';
     e.exclaim.style.display = phase === 'bite' ? '' : 'none';
+    e.bitehelp.style.display = phase === 'bite' ? '' : 'none';
     e.bitebar.style.display = phase === 'bite' ? '' : 'none';
     if (phase === 'bite') e.bitebarFill.style.width = '100%';
-    e.fightview.style.display = (phase === 'fight' || phase === 'hooking') ? '' : 'none';
+    e.waiting.style.display = phase === 'waiting' ? '' : 'none';
+    e.waitingFlavor.textContent = this._waitingFlavorText || 'Waiting patiently, or at least convincingly.';
+    e.hooking.style.display = phase === 'hooking' ? '' : 'none';
+    e.fightview.style.display = phase === 'fight' ? '' : 'none';
     e.trophy.style.display = phase === 'caught' ? '' : 'none';
     e.powerWrap.style.display = (phase === 'ready' || phase === 'casting') ? '' : 'none';
 
@@ -382,10 +504,10 @@ export const fishingManager = {
       nobait: 'Your hook is bare. Use "bait hook" first, then "fish" again.',
       ready: 'Hold the button to charge your cast; release to let fly.',
       casting: '',
-      waiting: 'Your line drifts on the ' + (this.session ? this.session.terrain : 'water') + '...',
-      bite: 'HOOK IT! Tap now!',
-      hooking: 'Setting the hook...',
-      fight: '',
+      waiting: 'Your line is in the ' + (this.session ? this.session.terrain : 'water') + '. Watch for the bite.',
+      bite: 'A fish is biting. Hook it before the timer runs out.',
+      hooking: 'Hook set. Getting the fish on the line...',
+      fight: 'Hold anywhere or press Space to raise the green bar. Release to let it fall.',
       caught: '',
       escaped: ESCAPE_TEXT[this.escapeReason] || ESCAPE_TEXT.slack,
     };
@@ -413,11 +535,45 @@ export const fishingManager = {
       e.trophyStatus.textContent = status;
       e.trophyStatus.style.display = status ? '' : 'none';
       e.status.textContent = '';
+    } else if (phase === 'bite') {
+      e.status.textContent = 'Tap anywhere in the fishing pane, click, or press Space now.';
+    } else if (phase === 'fight') {
+      e.status.textContent = 'Keep the green bar over the fish to reel it in. Ease off when tension gets hot.';
+    } else if (phase === 'hooking') {
+      e.status.textContent = 'The fight will begin as soon as the fish pulls.';
     } else if (phase === 'escaped' || phase === 'idle' || phase === 'nobait') {
       e.status.textContent = this.session && !this.session.baited && phase === 'escaped'
         ? 'Re-bait your hook to try again.' : '';
     } else {
       e.status.textContent = '';
+    }
+  },
+
+  _nextWaitingFlavor() {
+    if (!this._waitingFlavorDeck.length) this._waitingFlavorDeck = shuffleWaitingFlavor();
+    this._waitingFlavorText = this._waitingFlavorDeck.pop();
+    if (this.els && this.els.waitingFlavor) {
+      this.els.waitingFlavor.textContent = this._waitingFlavorText;
+    }
+  },
+
+  _startWaitingFlavor() {
+    this._stopWaitingFlavor();
+    this._waitingFlavorDeck = shuffleWaitingFlavor();
+    this._nextWaitingFlavor();
+    this._waitingFlavorTimer = window.setInterval(() => {
+      if (this.phase !== 'waiting') {
+        this._stopWaitingFlavor();
+        return;
+      }
+      this._nextWaitingFlavor();
+    }, WAITING_FLAVOR_INTERVAL_MS);
+  },
+
+  _stopWaitingFlavor() {
+    if (this._waitingFlavorTimer) {
+      window.clearInterval(this._waitingFlavorTimer);
+      this._waitingFlavorTimer = 0;
     }
   },
 
