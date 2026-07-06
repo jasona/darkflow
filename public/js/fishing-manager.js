@@ -6,7 +6,10 @@
 
 import { gmcp } from './gmcp.js';
 import { panelManager } from './panel-manager.js';
+import { soundManager } from './sound-manager.js';
 import { createFightSim, computeAccuracy, castPowerAt, PROGRESS_START } from './fishing-core.mjs';
+
+const REEL_LOOP_ID = 'fishing-reel';
 
 const PKG = {
   OPEN: 'Darkwind.Fishing.Open',
@@ -96,6 +99,8 @@ export const fishingManager = {
     if (!this._isCurrent(data) || this.phase !== 'waiting') return;
     this.phase = 'bite';
     this._biteTimer = data.windowMs || 2500;
+    this._biteWindow = this._biteTimer;
+    soundManager.play('fishing', 'splash');
     this._render();
     this._startLoop();
   },
@@ -104,9 +109,12 @@ export const fishingManager = {
     if (!this._isCurrent(data)) return;
     this.phase = 'fight';
     this.held = false;
+    this._tensionWarned = false;
     this.fightParams = data.params || {};
     this.sim = createFightSim(this.fightParams, data.seed || 1);
     this.fightMeta = data.fish || {};
+    this._burst();
+    soundManager.loop('fishing', 'reel', REEL_LOOP_ID, 0.6);
     this._render();
     if (this.els) this.els.bar.style.height = (this.fightParams.barSize || 20) + '%';
     this._startLoop();
@@ -115,12 +123,15 @@ export const fishingManager = {
   _onCaught(data) {
     if (!this._isCurrent(data)) return;
     this._stopLoop();
+    soundManager.stopById(REEL_LOOP_ID);
     this.phase = 'caught';
     this.lastCatch = data.fish || {};
     this.lastRewards = data.rewards || {};
     if (this.lastCatch.id && this.lastCatch.artUrl) {
       this.artCache[this.lastCatch.id] = this.lastCatch.artUrl;
     }
+    soundManager.play('fishing', 'catch');
+    if (this.lastCatch.pristine) soundManager.play('fishing', 'pristine');
     this.session.baited = false;
     this._render();
   },
@@ -128,8 +139,15 @@ export const fishingManager = {
   _onEscaped(data) {
     if (!this._isCurrent(data)) return;
     this._stopLoop();
+    soundManager.stopById(REEL_LOOP_ID);
     this.phase = 'escaped';
     this.escapeReason = data.reason || 'slack';
+    if (this.escapeReason === 'snap') {
+      soundManager.play('fishing', 'snap');
+      this._shake();
+    } else {
+      soundManager.play('fishing', 'slack');
+    }
     this.session.baited = false;
     this._render();
   },
@@ -156,6 +174,7 @@ export const fishingManager = {
 
   _reset(phase) {
     this._stopLoop();
+    soundManager.stopById(REEL_LOOP_ID);
     this.phase = phase;
     this.sim = null;
     this.held = false;
@@ -167,6 +186,7 @@ export const fishingManager = {
   _sendCast(power) {
     if (!this.session) return;
     gmcp.send(PKG.CAST, { session: this.session.id, power });
+    soundManager.play('fishing', 'cast');
     this.phase = 'waiting';
     this.session.baited = false;
     this._render();
@@ -175,6 +195,7 @@ export const fishingManager = {
   _sendHook() {
     if (!this.session || this.phase !== 'bite') return;
     gmcp.send(PKG.HOOK, { session: this.session.id });
+    soundManager.play('fishing', 'hook');
     this.phase = 'hooking';
     this._render();
   },
@@ -215,7 +236,9 @@ export const fishingManager = {
       <img class="fishing-scene" alt="" draggable="false">
       <div class="fishing-water"></div>
       <div class="fishing-bobber"><div class="fishing-bobber-top"></div></div>
+      <div class="fishing-splashfx"><span></span><span></span><span></span><span></span><span></span><span></span></div>
       <div class="fishing-exclaim">!</div>
+      <div class="fishing-bitebar"><div class="fishing-bitebar-fill"></div></div>
       <div class="fishing-fightview">
         <div class="fishing-track">
           <div class="fishing-fish"><img src="${FISH_SILHOUETTE_SVG}" alt="" draggable="false"></div>
@@ -230,6 +253,7 @@ export const fishingManager = {
         <img class="fishing-trophy-art" alt="" draggable="false">
         <div class="fishing-trophy-name"></div>
         <div class="fishing-trophy-details"></div>
+        <div class="fishing-trophy-status"></div>
       </div>
       <div class="fishing-message"></div>
       <div class="fishing-powerwrap">
@@ -244,7 +268,10 @@ export const fishingManager = {
       stage,
       scene: stage.querySelector('.fishing-scene'),
       bobber: stage.querySelector('.fishing-bobber'),
+      splashfx: stage.querySelector('.fishing-splashfx'),
       exclaim: stage.querySelector('.fishing-exclaim'),
+      bitebar: stage.querySelector('.fishing-bitebar'),
+      bitebarFill: stage.querySelector('.fishing-bitebar-fill'),
       fightview: stage.querySelector('.fishing-fightview'),
       fish: stage.querySelector('.fishing-fish'),
       bar: stage.querySelector('.fishing-bar'),
@@ -254,6 +281,7 @@ export const fishingManager = {
       trophyArt: stage.querySelector('.fishing-trophy-art'),
       trophyName: stage.querySelector('.fishing-trophy-name'),
       trophyDetails: stage.querySelector('.fishing-trophy-details'),
+      trophyStatus: stage.querySelector('.fishing-trophy-status'),
       message: stage.querySelector('.fishing-message'),
       powerWrap: stage.querySelector('.fishing-powerwrap'),
       powerFill: stage.querySelector('.fishing-power-fill'),
@@ -325,6 +353,8 @@ export const fishingManager = {
 
     e.bobber.style.display = (phase === 'waiting' || phase === 'bite') ? '' : 'none';
     e.exclaim.style.display = phase === 'bite' ? '' : 'none';
+    e.bitebar.style.display = phase === 'bite' ? '' : 'none';
+    if (phase === 'bite') e.bitebarFill.style.width = '100%';
     e.fightview.style.display = (phase === 'fight' || phase === 'hooking') ? '' : 'none';
     e.trophy.style.display = phase === 'caught' ? '' : 'none';
     e.powerWrap.style.display = (phase === 'ready' || phase === 'casting') ? '' : 'none';
@@ -361,7 +391,10 @@ export const fishingManager = {
       const r = this.lastRewards || {};
       let status = r.skillup ? 'Your fishing skill rises to ' + r.newSkill + '!' : '';
       if (r.reagent) status += (status ? ' ' : '') + '+' + r.reagent.amount + ' ' + r.reagent.name;
-      e.status.textContent = status;
+      // Rewards live inside the trophy card so they never overlap its border.
+      e.trophyStatus.textContent = status;
+      e.trophyStatus.style.display = status ? '' : 'none';
+      e.status.textContent = '';
     } else if (phase === 'escaped' || phase === 'idle' || phase === 'nobait') {
       e.status.textContent = this.session && !this.session.baited && phase === 'escaped'
         ? 'Re-bait your hook to try again.' : '';
@@ -386,6 +419,10 @@ export const fishingManager = {
         this.els.powerFill.classList.toggle('hot', p > 70);
       } else if (this.phase === 'bite') {
         this._biteTimer -= dt;
+        if (this._biteWindow > 0) {
+          const pct = Math.max(0, (this._biteTimer / this._biteWindow) * 100);
+          this.els.bitebarFill.style.width = pct + '%';
+        }
         if (this._biteTimer <= 0) {
           // Server will confirm the timeout; stop animating locally.
           this._stopLoop();
@@ -428,5 +465,32 @@ export const fishingManager = {
     e.tensionFill.classList.toggle('warn', st.tension > 60);
     e.tensionFill.classList.toggle('hot', st.tension > 85);
     e.stage.classList.toggle('fish-running', st.running);
+
+    // Creak once per excursion into the danger zone.
+    if (st.tension > 85 && !this._tensionWarned) {
+      this._tensionWarned = true;
+      soundManager.play('fishing', 'tension');
+    } else if (st.tension < 70 && this._tensionWarned) {
+      this._tensionWarned = false;
+    }
+  },
+
+  // ---- One-shot FX -----------------------------------------------------
+
+  _burst() {
+    const fx = this.els && this.els.splashfx;
+    if (!fx) return;
+    fx.classList.remove('burst');
+    void fx.offsetWidth; // restart the animation
+    fx.classList.add('burst');
+  },
+
+  _shake() {
+    const stage = this.els && this.els.stage;
+    if (!stage) return;
+    stage.classList.remove('fishing-shake');
+    void stage.offsetWidth;
+    stage.classList.add('fishing-shake');
+    setTimeout(() => stage.classList.remove('fishing-shake'), 600);
   },
 };

@@ -14,6 +14,7 @@ export const SOUND_CATEGORIES = [
   'discussion',
   'alert',
   'ambient',
+  'fishing',
   'ui',
 ];
 
@@ -27,6 +28,7 @@ export const SOUND_CATEGORY_INFO = {
   discussion: { icon: '\uD83D\uDCAC', label: 'Discuss' },
   alert: { icon: '\u26A0\uFE0F', label: 'Alert' },
   ambient: { icon: '\uD83C\uDF3F', label: 'Ambient' },
+  fishing: { icon: '\uD83C\uDFA3', label: 'Fishing' },
   ui: { icon: '\uD83D\uDDB1\uFE0F', label: 'Interface' },
 };
 
@@ -40,6 +42,7 @@ const DEFAULT_CATEGORY_ENABLED = {
   discussion: true,
   alert: true,
   ambient: true,
+  fishing: true,
   ui: true,
 };
 
@@ -86,6 +89,15 @@ export const SOUND_MAP = {
   'ambient/fire': '/assets/sounds/ambient-fire.mp3',
   'ambient/wind': '/assets/sounds/ambient-wind.mp3',
   'ambient/combat-music': '/assets/sounds/ambient-combat-music.mp3',
+  'fishing/cast': '/assets/sounds/fishing-cast.mp3',
+  'fishing/splash': '/assets/sounds/fishing-splash.mp3',
+  'fishing/hook': '/assets/sounds/fishing-hook.mp3',
+  'fishing/reel': '/assets/sounds/fishing-reel.mp3',
+  'fishing/tension': '/assets/sounds/fishing-tension.mp3',
+  'fishing/catch': '/assets/sounds/fishing-catch.mp3',
+  'fishing/pristine': '/assets/sounds/fishing-pristine.mp3',
+  'fishing/snap': '/assets/sounds/fishing-snap.mp3',
+  'fishing/slack': '/assets/sounds/fishing-slack.mp3',
   'ui/click': '/assets/sounds/ui-click.mp3',
   'ui/open': '/assets/sounds/ui-open.mp3',
   'ui/close': '/assets/sounds/ui-close.mp3',

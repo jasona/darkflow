@@ -99,6 +99,51 @@
   50% { transform: translateY(14px); }
 }
 
+/* Splash burst when the hook sets */
+.fishing-splashfx {
+  position: absolute;
+  left: 50%;
+  top: 58%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.fishing-splashfx span {
+  position: absolute;
+  left: -4px;
+  top: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: color-mix(in srgb, #6db7e8 70%, var(--df-text));
+  opacity: 0;
+}
+.fishing-splashfx.burst span {
+  animation: fishing-splash-fly 0.55s ease-out forwards;
+}
+.fishing-splashfx span:nth-child(1) { --fx: -38px; --fy: -52px; }
+.fishing-splashfx span:nth-child(2) { --fx: 34px; --fy: -58px; animation-delay: 0.03s; }
+.fishing-splashfx span:nth-child(3) { --fx: -18px; --fy: -66px; animation-delay: 0.05s; }
+.fishing-splashfx span:nth-child(4) { --fx: 20px; --fy: -44px; animation-delay: 0.02s; }
+.fishing-splashfx span:nth-child(5) { --fx: -50px; --fy: -30px; animation-delay: 0.06s; }
+.fishing-splashfx span:nth-child(6) { --fx: 48px; --fy: -28px; animation-delay: 0.04s; }
+@keyframes fishing-splash-fly {
+  0% { opacity: 0.95; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(var(--fx), var(--fy)) scale(0.35); }
+}
+
+/* Screen shake when the line snaps */
+.fishing-stage.fishing-shake {
+  animation: fishing-shake 0.45s ease-in-out;
+}
+@keyframes fishing-shake {
+  0%, 100% { transform: translate(0, 0); }
+  20% { transform: translate(-7px, 3px); }
+  40% { transform: translate(6px, -4px); }
+  60% { transform: translate(-5px, 3px); }
+  80% { transform: translate(3px, -2px); }
+}
+
 .fishing-exclaim {
   position: absolute;
   left: 50%;
@@ -114,6 +159,26 @@
 @keyframes fishing-exclaim {
   from { transform: translateX(-50%) scale(1); }
   to { transform: translateX(-50%) scale(1.3); }
+}
+
+/* Shrinking reaction-window bar under the "!" */
+.fishing-bitebar {
+  position: absolute;
+  left: 50%;
+  top: 45%;
+  transform: translateX(-50%);
+  width: 96px;
+  height: 6px;
+  border-radius: 3px;
+  border: 1px solid var(--df-border);
+  background: color-mix(in srgb, var(--df-bg) 60%, transparent);
+  overflow: hidden;
+  pointer-events: none;
+}
+.fishing-bitebar-fill {
+  height: 100%;
+  width: 100%;
+  background: var(--df-warn, #ffb300);
 }
 
 /* Fight view */
@@ -206,6 +271,7 @@
 
 /* Trophy card */
 .fishing-trophy {
+  --fishing-glow: color-mix(in srgb, var(--fishing-rarity, var(--df-border)) 45%, transparent);
   position: absolute;
   inset: 12px;
   display: flex;
@@ -213,18 +279,25 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
+  padding: 10px 12px;
   border-radius: 10px;
   border: 2px solid var(--fishing-rarity, var(--df-border));
   background: color-mix(in srgb, var(--df-panel) 88%, transparent);
-  animation: fishing-trophy-in 0.45s cubic-bezier(0.2, 1.4, 0.4, 1);
+  animation:
+    fishing-trophy-in 0.45s cubic-bezier(0.2, 1.4, 0.4, 1),
+    fishing-rarity-pulse 2.4s ease-in-out 0.5s infinite;
 }
 @keyframes fishing-trophy-in {
   from { transform: scale(0.6); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
 }
+@keyframes fishing-rarity-pulse {
+  0%, 100% { box-shadow: 0 0 5px var(--fishing-glow); }
+  50% { box-shadow: 0 0 22px var(--fishing-glow); }
+}
 .fishing-trophy-art {
   max-width: 70%;
-  max-height: 55%;
+  max-height: 50%;
   border-radius: 8px;
   color: var(--df-text);
 }
@@ -238,8 +311,13 @@
   color: var(--df-text);
   opacity: 0.85;
 }
+.fishing-trophy-status {
+  font-size: 12px;
+  text-align: center;
+  color: var(--df-ok, #4caf50);
+}
 .fishing-trophy.pristine {
-  box-shadow: 0 0 18px color-mix(in srgb, var(--fishing-rarity, gold) 60%, transparent);
+  --fishing-glow: color-mix(in srgb, var(--fishing-rarity, gold) 80%, transparent);
 }
 
 /* Message + status */
@@ -250,8 +328,10 @@
   top: 8px;
   text-align: center;
   font-size: 13px;
-  color: var(--df-text);
-  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  /* Fixed light tone: this renders over water scenery/AI art, which stays
+     dark regardless of UI theme (same reasoning as terminal text). */
+  color: #e8edf2;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.6);
   pointer-events: none;
 }
 .fishing-status {
@@ -309,4 +389,8 @@
   .fishing-body { min-height: 300px; }
   .fishing-track { width: 84px; }
   .fishing-fish img { width: 52px; height: 33px; }
+  .fishing-cast-btn { padding: 14px 26px; font-size: 15px; }
+  .fishing-power { width: 24px; height: 100px; }
+  .fishing-bitebar { width: 120px; height: 8px; }
+  .fishing-meter { height: 30px; }
 }
