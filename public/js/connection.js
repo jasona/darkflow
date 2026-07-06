@@ -3,6 +3,7 @@ import { gmcp, gmcpTextDecoder } from './gmcp.js';
 import { appendOutput, appendSystemMessage, closeOpenOutputLine } from './output.js';
 import { panelManager } from './panel-manager.js';
 import { windowManager } from './window-manager.js';
+import { fishingManager } from './fishing-manager.js';
 import { RECONNECT_BASE_MS, RECONNECT_MAX_MS } from './constants.js';
 import { settingsManager } from './settings-manager.js';
 import { timerManager } from './timer-manager.js';
@@ -293,6 +294,7 @@ function finalizeDisconnect() {
   gmcp.reset();
   state.tabObservability.lastSentState = null;
   panelManager.resetData();
+  fishingManager.handleDisconnect();
   // Keep auth windows (login/charselect/newchar) alive across a drop:
   // their connection strip shows the reconnect progress, and the fresh
   // login window from the next connection replaces them in place

@@ -172,6 +172,16 @@ export const fishingManager = {
     return data && this.session && data.session === this.session.id;
   },
 
+  // Connection loss invalidates the server session. Without this a pane
+  // that survives a reconnect keeps its dead nonce and every input is
+  // silently discarded server-side.
+  handleDisconnect() {
+    if (!this.session && this.phase === 'idle') return;
+    this._reset('idle');
+    this.endMessage = 'Connection lost. Type "fish" to start a new session.';
+    this._render();
+  },
+
   _reset(phase) {
     this._stopLoop();
     soundManager.stopById(REEL_LOOP_ID);
