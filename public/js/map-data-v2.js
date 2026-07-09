@@ -494,12 +494,27 @@ export function processSyncError(data) {
   }
 }
 
-export function clearMapDataForArea(area) {
+export function clearMapDataForArea(area, reset = {}) {
   if (!area) return;
+  const current = currentRoomId ? rooms.get(currentRoomId) : null;
+  if (current && current.area === area) {
+    currentRoomId = null;
+    currentAreaName = '';
+  }
   removeAreaRooms(area);
   areaVersions.delete(area);
+  areaGenerations.delete(area);
+  if (reset.areaGeneration !== undefined) {
+    areaGenerations.set(area, reset.areaGeneration);
+  }
+  if (reset.mapEpoch) mapEpoch = reset.mapEpoch;
+  stagedSyncs.delete(area);
   lastSyncRequestByArea.delete(area);
-  save(area);
+  dirtyAreas.delete(area);
+  active = rooms.size > 0;
+  deleteMapArea(STORAGE_SOURCE, worldKey, area).catch((error) => {
+    storageError = error && error.message ? error.message : 'Map cache unavailable';
+  });
   setMapStatus('Cleared ' + area + ', resyncing...');
   requestAreaSync(area, true);
 }
