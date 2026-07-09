@@ -26,6 +26,14 @@ const CANONICAL_PACKAGES = new Map([
   ['core.ping', 'Core.Ping'],
   ['darkwind.lag.status', 'Darkwind.Lag.Status'],
   ['darkwind.xpmon', 'Darkwind.XPMon'],
+  ['darkwind.mapdata2.current', 'Darkwind.MapData2.Current'],
+  ['darkwind.mapdata2.update', 'Darkwind.MapData2.Update'],
+  ['darkwind.mapdata2.area', 'Darkwind.MapData2.Area'],
+  ['darkwind.mapdata2.browsearea', 'Darkwind.MapData2.BrowseArea'],
+  ['darkwind.mapdata2.reset', 'Darkwind.MapData2.Reset'],
+  ['darkwind.mapdata2.error', 'Darkwind.MapData2.Error'],
+  ['darkwind.mapdata2.sync', 'Darkwind.MapData2.Sync'],
+  ['darkwind.mapdata2.browse', 'Darkwind.MapData2.Browse'],
 ]);
 
 function isObject(value) {

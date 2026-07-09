@@ -31,6 +31,11 @@ export function initSpeedwalk(options) {
         : data.vnum);
       if (id !== undefined && id !== null) notifyRoomChange(String(id));
     });
+    if (typeof document !== 'undefined') {
+      document.addEventListener('dw:connectionstate', (event) => {
+        if (!event.detail || event.detail.state !== 'connected') cancelSpeedwalk('disconnected');
+      });
+    }
   }
 }
 
@@ -57,7 +62,8 @@ export function findPath(fromId, toId, source = mapData) {
 
     for (const [dir, destId] of Object.entries(room.exits)) {
       if (!destId || cameFrom.has(destId)) continue;
-      if (room.exitDoors && room.exitDoors[dir] >= 2) continue;
+      if (source.canWalkExit && !source.canWalkExit(room, dir, destId)) continue;
+      if (!source.canWalkExit && room.exitDoors && room.exitDoors[dir] >= 2) continue;
       const dest = source.getRoom(destId);
       if (!dest || dest.area !== start.area) continue;
 
@@ -98,7 +104,12 @@ export function startSpeedwalk(targetId, source = mapData) {
     return false;
   }
 
-  walk = { steps, index: 0, targetName: (target && target.name) || 'there' };
+  walk = {
+    steps,
+    index: 0,
+    targetName: (target && target.name) || 'there',
+    epoch: source.getMapEpoch ? source.getMapEpoch() : '',
+  };
   sendStep();
   return true;
 }
@@ -135,10 +146,23 @@ export function notifyRoomChange(roomId) {
 
 function sendStep() {
   const step = walk.steps[walk.index];
+  const source = activeSource();
+  if (walk.epoch && source && source.getMapEpoch && source.getMapEpoch() !== walk.epoch) {
+    cancelSpeedwalk('map data changed');
+    return;
+  }
+  const current = source && source.getRoom ? source.getRoom(source.getCurrentRoomId()) : null;
+  if (source && source.canWalkExit && !source.canWalkExit(current, step.dir, step.destId)) {
+    cancelSpeedwalk('route is no longer available');
+    return;
+  }
   const remaining = walk.steps.length - walk.index;
   setStatus('Walking to ' + walk.targetName + ' (' + remaining
     + (remaining === 1 ? ' step)' : ' steps)'));
-  config.send(step.dir);
+  if (config.send(step.dir) === false) {
+    cancelSpeedwalk('command was not sent');
+    return;
+  }
   clearStepTimer();
   stepTimer = setTimeout(() => {
     stepTimer = null;

@@ -18,6 +18,7 @@ import {
   exitBrowse as exitMapData2Browse,
   clearMapData as clearMapData2,
   load as loadMapData2,
+  processSyncError as processMapData2Error,
 } from './map-data-v2.js';
 import { load as loadGenericMapData } from './map-data-gmcp.js';
 import {
@@ -3091,6 +3092,12 @@ export const panelManager = {
     gmcp.on('Darkwind.MapData2.Update', (data) => {
       markMapData2Active();
       mergeMapData2Update(data);
+      this._queuePanelRender('map');
+    });
+
+    gmcp.on('Darkwind.MapData2.Error', (data) => {
+      markMapData2Active();
+      processMapData2Error(data);
       this._queuePanelRender('map');
     });
 

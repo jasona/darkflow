@@ -157,7 +157,7 @@ export const gmcp = {
       'Darkwind.Window 1',
       'Darkwind.Snoop 1',
       'Darkwind.IDE 2',
-      'Darkwind.MapData2 1',
+      'Darkwind.MapData2 2',
       'Darkwind.Completion 1',
       'Darkwind.Quests 1',
       'Darkwind.Achievements 1',

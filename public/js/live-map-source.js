@@ -10,6 +10,12 @@ export function getLiveMapSource() {
 
 export function resetLiveMapModeForConnection() {
   mode = 'auto';
+  const identity = {
+    host: dom.host && dom.host.value,
+    port: dom.port && dom.port.value,
+  };
+  darkwindMap.configureWorld(identity);
+  gmcpMap.configureWorld(identity);
   gmcpMap.resetForConnection();
 }
 

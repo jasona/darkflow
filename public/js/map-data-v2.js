@@ -1,4 +1,5 @@
 import { gmcp } from './gmcp.js';
+import { loadMapAreas, saveMapArea, deleteMapArea, clearMapSource, pruneMapAreas } from './map-storage.js';
 
 const STORAGE_KEY = 'darkwind-map-data-v2';
 const LEGACY_STORAGE_KEY = 'darkwind-map-data-v3';
@@ -6,7 +7,8 @@ const MIGRATION_KEY = 'darkwind-map-data-v2-migration-complete';
 // Bumped to 4 to flush browser caches after the server widened room ids from
 // the colliding 17-bit crc to 52-bit md5-derived ints (every cached id and
 // exit target changed identity).
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
+const STORAGE_SOURCE = 'mapdata2';
 
 export const DIR_OFFSETS = {
   north:     { dx:  0, dy: -1, dz: 0 },
@@ -25,12 +27,19 @@ let rooms = new Map();
 let currentRoomId = null;
 let currentAreaName = '';
 let areaVersions = new Map();
+let areaGenerations = new Map();
+let mapEpoch = '';
+let worldKey = 'darkwind';
 let active = false;
 let mapStatusMessage = '';
 let mapStatusAt = 0;
 let saveTimer = null;
 let forceFullSyncOnNextCurrent = false;
 let lastSyncRequestByArea = new Map();
+let stagedSyncs = new Map();
+let dirtyAreas = new Set();
+let storageError = '';
+let loadToken = 0;
 
 const MAP_STATUS_TTL_MS = 6000;
 const SAVE_DEBOUNCE_MS = 200;
@@ -38,6 +47,21 @@ const SYNC_THROTTLE_MS = 4000;
 
 function normalizeRoomId(id) {
   return id === null || id === undefined ? null : String(id);
+}
+
+function safeSlug(value) {
+  return String(value || 'darkwind').toLowerCase()
+    .replace(/[^a-z0-9._:-]+/g, '-').replace(/^-+|-+$/g, '') || 'darkwind';
+}
+
+export function configureWorld(identity = {}) {
+  const next = safeSlug([identity.host || 'darkwind', identity.port || ''].filter(Boolean).join('@'));
+  if (next === worldKey) return;
+  flushPendingMapSave();
+  worldKey = next;
+  loadToken++;
+  resetInMemoryState();
+  load();
 }
 
 export function setMapStatus(msg) {
@@ -77,6 +101,25 @@ export function getAreaName() {
   return currentAreaName;
 }
 
+export function getAuthority() { return 'authoritative'; }
+export function getMapEpoch() { return mapEpoch; }
+
+export function canWalkExit(room, dir, destId) {
+  if (!room || !dir || !destId) return false;
+  if (room.layoutState === 'identity_conflict') return false;
+  const defaultSafe = !!DIR_OFFSETS[dir] || dir === 'in' || dir === 'out';
+  const safe = room.walkSafe && Object.prototype.hasOwnProperty.call(room.walkSafe, dir)
+    ? !!room.walkSafe[dir] : defaultSafe;
+  if (!safe) return false;
+  const doors = room.id === currentRoomId && room.hasLiveObservation
+    ? room.liveDoors : room.exitDoors;
+  if (doors && doors[dir] >= 2) return false;
+  if (room.id === currentRoomId && room.hasLiveObservation) {
+    return room.liveExits && room.liveExits[dir] === normalizeRoomId(destId);
+  }
+  return room.exits && room.exits[dir] === normalizeRoomId(destId);
+}
+
 export function getRoomsByArea(area) {
   const result = [];
   for (const room of rooms.values()) {
@@ -87,6 +130,9 @@ export function getRoomsByArea(area) {
 
 function normalizeRoomPayload(data, fallbackArea) {
   if (!data || data.id === null || data.id === undefined) return null;
+  const positioned = !!data.positioned
+    && Number.isFinite(Number(data.x)) && Number.isFinite(Number(data.y))
+    && Number.isFinite(Number(data.z));
   const room = {
     id: normalizeRoomId(data.id),
     name: data.name || '',
@@ -95,12 +141,19 @@ function normalizeRoomPayload(data, fallbackArea) {
     exits: {},
     exitKinds: {},
     exitDoors: {},
-    x: data.positioned && data.x !== undefined ? data.x : null,
-    y: data.positioned && data.y !== undefined ? data.y : null,
-    z: data.positioned && data.z !== undefined ? data.z : null,
+    x: positioned ? Number(data.x) : null,
+    y: positioned ? Number(data.y) : null,
+    z: positioned ? Number(data.z) : null,
     coordSource: data.coordSource || '',
-    positioned: !!data.positioned,
+    positioned,
     version: data.version || 0,
+    observed: data.observed === undefined ? true : !!data.observed,
+    observedAt: Number(data.observedAt) || 0,
+    layoutState: data.layoutState || (data.positioned ? 'verified' : 'pending'),
+    walkSafe: {},
+    liveExits: {},
+    liveDoors: {},
+    hasLiveObservation: data.liveExits !== undefined,
   };
 
   if (data.exits && typeof data.exits === 'object') {
@@ -116,6 +169,17 @@ function normalizeRoomPayload(data, fallbackArea) {
   // server, so the door marker is the only trace of the passage.
   if (data.exitDoors && typeof data.exitDoors === 'object') {
     room.exitDoors = Object.assign({}, data.exitDoors);
+  }
+  if (data.walkSafe && typeof data.walkSafe === 'object') {
+    room.walkSafe = Object.assign({}, data.walkSafe);
+  }
+  if (data.liveExits && typeof data.liveExits === 'object') {
+    for (const [dir, destId] of Object.entries(data.liveExits)) {
+      room.liveExits[dir] = normalizeRoomId(destId);
+    }
+  }
+  if (data.liveDoors && typeof data.liveDoors === 'object') {
+    room.liveDoors = Object.assign({}, data.liveDoors);
   }
   // Room feature tags for map icons (IRE-style details: shop, bank, ...).
   room.details = Array.isArray(data.details) ? data.details.slice(0, 4) : [];
@@ -139,7 +203,8 @@ function removeAreaRooms(area) {
   }
 }
 
-function save() {
+function save(area) {
+  if (area) dirtyAreas.add(area);
   if (saveTimer) return;
   saveTimer = setTimeout(() => {
     saveTimer = null;
@@ -152,29 +217,33 @@ export function flushPendingMapSave() {
     clearTimeout(saveTimer);
     saveTimer = null;
   }
-  try {
-    const data = {};
-    const versions = {};
-    for (const [id, room] of rooms) data[id] = room;
-    for (const [area, version] of areaVersions) versions[area] = version;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  const areas = Array.from(dirtyAreas);
+  dirtyAreas.clear();
+  for (const area of areas) {
+    const areaRooms = [];
+    for (const room of rooms.values()) if (room.area === area) areaRooms.push(room);
+    saveMapArea(STORAGE_SOURCE, worldKey, area, {
       schemaVersion: SCHEMA_VERSION,
-      active,
-      currentRoomId,
-      rooms: data,
-      areaVersions: versions,
-    }));
-  } catch (e) {
-    // localStorage full or unavailable.
+      mapEpoch,
+      generation: areaGenerations.get(area) || 0,
+      version: areaVersions.get(area) || 0,
+      rooms: areaRooms,
+    }).then(() => pruneMapAreas(STORAGE_SOURCE, worldKey, 25000, area)).catch((error) => {
+      storageError = error && error.message ? error.message : 'Map cache unavailable';
+    });
   }
 }
 
 function resetInMemoryState() {
   rooms.clear();
   areaVersions.clear();
+  areaGenerations.clear();
+  stagedSyncs.clear();
+  dirtyAreas.clear();
   currentRoomId = null;
   currentAreaName = '';
   active = false;
+  mapEpoch = '';
 }
 
 function runStorageMigration() {
@@ -208,34 +277,38 @@ function runStorageMigration() {
   }
 }
 
-export function load() {
+export async function load() {
+  const token = ++loadToken;
+  const loadingWorld = worldKey;
   runStorageMigration();
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const data = JSON.parse(raw);
-    if (data.schemaVersion !== SCHEMA_VERSION) {
-      localStorage.removeItem(STORAGE_KEY);
-      forceFullSyncOnNextCurrent = true;
-      return;
-    }
-    active = !!data.active;
-    currentRoomId = normalizeRoomId(data.currentRoomId);
-    rooms.clear();
-    if (data.rooms) {
-      for (const [id, room] of Object.entries(data.rooms)) {
-        room.id = normalizeRoomId(room.id) || normalizeRoomId(id);
-        rooms.set(room.id, room);
+    const records = await loadMapAreas(STORAGE_SOURCE, loadingWorld);
+    if (token !== loadToken || loadingWorld !== worldKey || !records.length) return;
+    let loadedEpoch = mapEpoch;
+    for (const record of records) {
+      if (!record || record.schemaVersion !== SCHEMA_VERSION
+        || typeof record.area !== 'string' || !record.area
+        || typeof record.mapEpoch !== 'string' || !record.mapEpoch
+        || !Array.isArray(record.rooms)) {
+        await deleteMapArea(STORAGE_SOURCE, worldKey, record && record.area);
+        continue;
+      }
+      if (loadedEpoch && loadedEpoch !== record.mapEpoch) continue;
+      loadedEpoch = record.mapEpoch || loadedEpoch;
+      if (!areaVersions.has(record.area))
+        areaVersions.set(record.area, Number(record.version) || 0);
+      if (!areaGenerations.has(record.area))
+        areaGenerations.set(record.area, Number(record.generation) || 0);
+      for (const raw of record.rooms) {
+        const id = raw && normalizeRoomId(raw.id);
+        if (id && !rooms.has(id)) mergeRoom(raw, record.area);
       }
     }
-    areaVersions.clear();
-    if (data.areaVersions) {
-      for (const [area, version] of Object.entries(data.areaVersions)) {
-        areaVersions.set(area, version);
-      }
-    }
+    mapEpoch = loadedEpoch;
+    active = rooms.size > 0;
   } catch (e) {
     resetInMemoryState();
+    storageError = e && e.message ? e.message : 'Map cache unavailable';
   }
 }
 
@@ -261,12 +334,35 @@ function reconcileAreaVersion(area, serverVersion) {
   requestAreaSync(area, full);
 }
 
+function resetForEpoch(epoch) {
+  resetInMemoryState();
+  mapEpoch = epoch || '';
+  forceFullSyncOnNextCurrent = true;
+  clearMapSource(STORAGE_SOURCE, worldKey).catch(() => {});
+  setMapStatus('Refreshing authoritative map...');
+}
+
 export function processCurrent(data) {
   if (!data || data.id === null || data.id === undefined) return 0;
+  if (data.protocol >= 2 && data.mapEpoch && mapEpoch && data.mapEpoch !== mapEpoch) {
+    resetForEpoch(data.mapEpoch);
+  } else if (data.mapEpoch && !mapEpoch) {
+    mapEpoch = data.mapEpoch;
+  }
   active = true;
   mergeRoom(data, data.area);
   currentRoomId = normalizeRoomId(data.id);
   currentAreaName = data.areaName || data.area || '';
+  if (data.area && data.areaGeneration !== undefined) {
+    const knownGeneration = areaGenerations.get(data.area);
+    if (knownGeneration !== undefined && knownGeneration !== data.areaGeneration) {
+      removeAreaRooms(data.area);
+      areaVersions.delete(data.area);
+      stagedSyncs.delete(data.area);
+      forceFullSyncOnNextCurrent = true;
+    }
+    areaGenerations.set(data.area, data.areaGeneration);
+  }
   // NOTE: do NOT store data.areaVersion as our baseline here. The baseline
   // means "we hold every room up to version V"; Current carries only ONE room,
   // and storing its area version made incremental syncs skip everything other
@@ -282,7 +378,7 @@ export function processCurrent(data) {
   if (!data.positioned) {
     setMapStatus('Map layout pending for ' + (data.name || 'current room'));
   }
-  save();
+  save(data.area);
   return 1;
 }
 
@@ -300,11 +396,14 @@ export function mergeServerAreaData(data) {
   if (data.version !== undefined && !data.more) {
     areaVersions.set(data.area, data.version);
   }
-  if (merged || data.replace || data.version !== undefined) save();
+  if (data.areaGeneration !== undefined) areaGenerations.set(data.area, data.areaGeneration);
+  if (data.mapEpoch) mapEpoch = data.mapEpoch;
+  if (merged || data.replace || data.version !== undefined) save(data.area);
   return merged;
 }
 
 export function mergeServerUpdate(data) {
+  if (data && data.protocol >= 2) return mergeServerUpdateV2(data);
   const merged = mergeServerAreaData(data);
   if (data && data.area && data.more) {
     // Continue THIS sync with the server's cursor. The old version-high-water
@@ -318,12 +417,81 @@ export function mergeServerUpdate(data) {
   return merged;
 }
 
+function mergeServerUpdateV2(data) {
+  if (!data || !data.area || !Array.isArray(data.rooms)) return 0;
+  if (data.mapEpoch && mapEpoch && data.mapEpoch !== mapEpoch) resetForEpoch(data.mapEpoch);
+  if (data.mapEpoch) mapEpoch = data.mapEpoch;
+
+  let stage = stagedSyncs.get(data.area);
+  if (!stage || stage.snapshotVersion !== data.snapshotVersion
+    || stage.generation !== data.areaGeneration || stage.since !== data.since) {
+    stage = {
+      rooms: new Map(),
+      snapshotVersion: Number(data.snapshotVersion) || 0,
+      generation: Number(data.areaGeneration) || 0,
+      since: Number(data.since) || 0,
+      replace: !!data.replace,
+    };
+    stagedSyncs.set(data.area, stage);
+  }
+  let merged = 0;
+  for (const raw of data.rooms) {
+    const room = normalizeRoomPayload(raw, data.area);
+    if (!room) continue;
+    stage.rooms.set(room.id, room);
+    merged++;
+  }
+
+  if (!data.complete) {
+    gmcp.send('Darkwind.MapData2.Sync', {
+      area: data.area,
+      mapEpoch,
+      generation: stage.generation,
+      since: stage.since,
+      snapshotVersion: stage.snapshotVersion,
+      cursor: data.cursor,
+    });
+    return merged;
+  }
+
+  if (stage.replace) removeAreaRooms(data.area);
+  for (const room of stage.rooms.values()) rooms.set(room.id, room);
+  areaVersions.set(data.area, stage.snapshotVersion);
+  areaGenerations.set(data.area, stage.generation);
+  stagedSyncs.delete(data.area);
+  save(data.area);
+
+  if (Number(data.latestVersion) > stage.snapshotVersion) requestAreaSync(data.area, false);
+  return merged;
+}
+
 export function requestAreaSync(area, forceFull) {
   if (!area) return;
+  const since = forceFull ? 0 : (areaVersions.get(area) || 0);
   gmcp.send('Darkwind.MapData2.Sync', {
     area,
-    version: forceFull ? 0 : (areaVersions.get(area) || 0),
+    mapEpoch,
+    generation: areaGenerations.get(area) || 0,
+    since,
+    version: since,
+    snapshotVersion: 0,
+    cursor: 0,
   });
+}
+
+export function processSyncError(data) {
+  if (!data || !data.area) return;
+  if (data.mapEpoch && data.mapEpoch !== mapEpoch) resetForEpoch(data.mapEpoch);
+  if (data.areaGeneration !== undefined) areaGenerations.set(data.area, data.areaGeneration);
+  stagedSyncs.delete(data.area);
+  if (data.code === 'rate_limited') {
+    setTimeout(() => requestAreaSync(data.area, false), Number(data.retryAfterMs) || 1000);
+    return;
+  }
+  if (data.restart) {
+    areaVersions.delete(data.area);
+    requestAreaSync(data.area, true);
+  }
 }
 
 export function clearMapDataForArea(area) {
@@ -331,14 +499,16 @@ export function clearMapDataForArea(area) {
   removeAreaRooms(area);
   areaVersions.delete(area);
   lastSyncRequestByArea.delete(area);
-  save();
+  save(area);
   setMapStatus('Cleared ' + area + ', resyncing...');
   requestAreaSync(area, true);
 }
 
 export function clearMapData() {
+  const oldWorld = worldKey;
   resetInMemoryState();
-  localStorage.removeItem(STORAGE_KEY);
+  clearMapSource(STORAGE_SOURCE, oldWorld).catch(() => {});
+  try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
 }
 
 // ── Browse mode: view an arbitrary catalog area in the Area Map pane ─────────
@@ -442,6 +612,11 @@ function debugSummary() {
     roomsByArea: byArea,
     pendingRooms: pending.slice(0, 25),
     areaVersions: Object.fromEntries(areaVersions),
+    areaGenerations: Object.fromEntries(areaGenerations),
+    mapEpoch,
+    authority: 'authoritative',
+    stagedSyncs: Array.from(stagedSyncs.keys()),
+    storageError,
   };
 }
 

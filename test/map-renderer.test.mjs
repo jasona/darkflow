@@ -232,7 +232,7 @@ test('cross-zone diagonal exit renders a stub, not a connector', () => {
   assert.ok(!out.includes('map-conn-ne'), 'never a connector across zones');
 });
 
-test('mapped but non-adjacent diagonal renders neither connector nor stub', () => {
+test('mapped but non-adjacent diagonal renders an adjusted-layout stub', () => {
   const area = 'FarDiag';
   const out = renderWithRooms(area, [
     { id: area + ':A', name: 'Start', area, env: 'plains',
@@ -241,7 +241,8 @@ test('mapped but non-adjacent diagonal renders neither connector nor stub', () =
       positioned: true, x: 3, y: -3, z: 0, exits: { southwest: area + ':A' } },
   ]);
   assert.ok(!out.includes('map-conn-ne"'), 'non-adjacent room -> no drawable line');
-  assert.ok(!out.includes('map-stub-ne"'), 'positioned same-zone dest -> no stub either');
+  assert.ok(out.includes('map-stub-ne map-stub-adjusted"'),
+    'known non-adjacent edge remains visible as adjusted');
 });
 
 test('diagonal to a different z-level renders nothing (pins existing skip)', () => {
@@ -492,5 +493,79 @@ test('first Current for an unsynced area requests a full sync (login path)', () 
     assert.equal(sent.length, 1, 'no baseline -> full sync requested');
     assert.equal(sent[0].data.area, 'FreshLand');
     assert.equal(sent[0].data.version, 0);
+  });
+});
+
+test('v2 replacement snapshots are applied atomically on completion', () => {
+  v2.clearMapData();
+  v2.mergeServerAreaData({
+    area: 'AtomicLand', version: 4, more: 0, replace: 1,
+    rooms: [{ id: 'old', name: 'Old', area: 'AtomicLand', positioned: 1,
+      x: 0, y: 0, z: 0, exits: {} }],
+  });
+  withGmcpSpy((sent) => {
+    v2.mergeServerUpdate({
+      protocol: 2, mapEpoch: 'epoch-a', area: 'AtomicLand', areaGeneration: 2,
+      since: 0, snapshotVersion: 8, latestVersion: 8, cursor: 10,
+      complete: 0, replace: 1,
+      rooms: [{ id: 'new-a', name: 'New A', area: 'AtomicLand', positioned: 1,
+        x: 1, y: 0, z: 0, exits: {} }],
+    });
+    assert.ok(v2.getRoom('old'), 'old complete snapshot remains visible mid-sync');
+    assert.equal(v2.getRoom('new-a'), undefined, 'partial room is staged');
+    assert.equal(sent.length, 1, 'continuation requested');
+
+    v2.mergeServerUpdate({
+      protocol: 2, mapEpoch: 'epoch-a', area: 'AtomicLand', areaGeneration: 2,
+      since: 0, snapshotVersion: 8, latestVersion: 8, cursor: 20,
+      complete: 1, replace: 1,
+      rooms: [{ id: 'new-b', name: 'New B', area: 'AtomicLand', positioned: 1,
+        x: 2, y: 0, z: 0, exits: {} }],
+    });
+    assert.equal(v2.getRoom('old'), undefined, 'old snapshot removed at commit');
+    assert.ok(v2.getRoom('new-a'));
+    assert.ok(v2.getRoom('new-b'));
+  });
+});
+
+test('v2 epoch changes discard stale areas and request a full snapshot', () => {
+  v2.clearMapData();
+  v2.mergeServerUpdate({
+    protocol: 2, mapEpoch: 'old-epoch', area: 'OldLand', areaGeneration: 1,
+    since: 0, snapshotVersion: 1, latestVersion: 1, complete: 1, replace: 1,
+    cursor: 'old', rooms: [{ id: 'old-room', name: 'Old', area: 'OldLand',
+      positioned: 1, x: 0, y: 0, z: 0, exits: {} }],
+  });
+  assert.ok(v2.getRoom('old-room'));
+
+  withGmcpSpy((sent) => {
+    v2.processCurrent({
+      protocol: 2, mapEpoch: 'new-epoch', areaGeneration: 1,
+      id: 'new-room', name: 'New', area: 'NewLand', positioned: 1,
+      x: 0, y: 0, z: 0, areaVersion: 1, exits: {}, liveExits: {},
+    });
+    assert.equal(v2.getRoom('old-room'), undefined, 'old epoch cache removed');
+    assert.equal(v2.getMapEpoch(), 'new-epoch');
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].data.since, 0, 'new epoch starts with a full sync');
+  });
+});
+
+test('v2 generation errors restart only the affected area', () => {
+  v2.clearMapData();
+  v2.mergeServerUpdate({
+    protocol: 2, mapEpoch: 'stable-epoch', area: 'RepairLand', areaGeneration: 1,
+    since: 0, snapshotVersion: 5, latestVersion: 5, complete: 1, replace: 1,
+    cursor: 'r1', rooms: [{ id: 'r1', name: 'Room', area: 'RepairLand',
+      positioned: 1, x: 0, y: 0, z: 0, exits: {} }],
+  });
+  withGmcpSpy((sent) => {
+    v2.processSyncError({
+      code: 'generation_changed', area: 'RepairLand', restart: 1,
+      mapEpoch: 'stable-epoch', areaGeneration: 2,
+    });
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].data.generation, 2);
+    assert.equal(sent[0].data.since, 0);
   });
 });

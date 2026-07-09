@@ -1,3 +1,5 @@
+import { loadMapAreas, saveMapArea, deleteMapArea, clearMapSource, pruneMapAreas } from './map-storage.js';
+
 export const DIR_OFFSETS = {
   north:     { dx:  0, dy: -1, dz: 0 },
   south:     { dx:  0, dy:  1, dz: 0 },
@@ -11,9 +13,10 @@ export const DIR_OFFSETS = {
   down:      { dx:  0, dy:  0, dz:-1 },
 };
 
-const STORAGE_PREFIX = 'darkflow-gmcp-map:';
 const DEFAULT_WORLD_KEY = 'unknown-world';
-const SCHEMA_VERSION = 1;
+const LEGACY_STORAGE_PREFIX = 'darkflow-gmcp-map:';
+const SCHEMA_VERSION = 2;
+const STORAGE_SOURCE = 'room-info';
 const MAP_STATUS_TTL_MS = 6000;
 const SAVE_DEBOUNCE_MS = 200;
 const TRUSTED_COORD_SAMPLE_MIN = 4;
@@ -28,13 +31,12 @@ let mapStatusAt = 0;
 let saveTimer = null;
 let lastRoomId = null;
 let coordStatsByArea = new Map();
+let dirtyAreas = new Set();
+let storageError = '';
+let loadToken = 0;
 
 function normalizeRoomId(id) {
   return id === null || id === undefined ? null : String(id);
-}
-
-function storageKey() {
-  return STORAGE_PREFIX + worldKey;
 }
 
 function safeSlug(value) {
@@ -110,18 +112,29 @@ function coordKey(coords) {
 function coordStats(area) {
   let stats = coordStatsByArea.get(area);
   if (!stats) {
-    stats = { sample: 0, coords: new Set(), trusted: false };
+    stats = { sample: 0, coords: new Set(), coherent: 0, trusted: false };
     coordStatsByArea.set(area, stats);
   }
   return stats;
 }
 
-function noteCoords(area, coords) {
+function noteCoords(area, coords, roomId) {
   if (!coords) return false;
   const stats = coordStats(area);
   stats.sample++;
   stats.coords.add(coordKey(coords));
-  if (stats.sample >= TRUSTED_COORD_SAMPLE_MIN && stats.coords.size >= TRUSTED_COORD_SAMPLE_MIN) {
+  const previous = currentRoomId ? rooms.get(currentRoomId) : null;
+  if (previous && previous.id !== roomId && previous.area === area && previous.rawCoords) {
+    for (const [dir, destId] of Object.entries(previous.exits || {})) {
+      const offset = DIR_OFFSETS[dir];
+      if (!offset || destId !== roomId) continue;
+      if (previous.rawCoords.x + offset.dx === coords.x
+        && previous.rawCoords.y + offset.dy === coords.y
+        && previous.rawCoords.z + offset.dz === coords.z) stats.coherent++;
+    }
+  }
+  if (stats.sample >= TRUSTED_COORD_SAMPLE_MIN
+    && stats.coords.size >= TRUSTED_COORD_SAMPLE_MIN && stats.coherent >= 2) {
     stats.trusted = true;
   }
   return stats.trusted;
@@ -130,7 +143,26 @@ function noteCoords(area, coords) {
 function rebuildCoordStats() {
   coordStatsByArea.clear();
   for (const room of rooms.values()) {
-    if (room.rawCoords) noteCoords(room.area, room.rawCoords);
+    if (!room.rawCoords) continue;
+    const stats = coordStats(room.area);
+    stats.sample++;
+    stats.coords.add(coordKey(room.rawCoords));
+  }
+  for (const room of rooms.values()) {
+    if (!room.rawCoords) continue;
+    for (const [dir, destId] of Object.entries(room.exits || {})) {
+      const offset = DIR_OFFSETS[dir];
+      const dest = rooms.get(destId);
+      if (!offset || !dest || !dest.rawCoords || dest.area !== room.area) continue;
+      if (room.rawCoords.x + offset.dx === dest.rawCoords.x
+        && room.rawCoords.y + offset.dy === dest.rawCoords.y
+        && room.rawCoords.z + offset.dz === dest.rawCoords.z) coordStats(room.area).coherent++;
+    }
+  }
+  for (const [area, stats] of coordStatsByArea) {
+    stats.trusted = stats.sample >= TRUSTED_COORD_SAMPLE_MIN
+      && stats.coords.size >= TRUSTED_COORD_SAMPLE_MIN && stats.coherent >= 2;
+    if (stats.trusted) applyTrustedCoords(area);
   }
 }
 
@@ -191,7 +223,8 @@ function inferCoords(roomId, area, exits) {
   return null;
 }
 
-function save() {
+function save(area) {
+  if (area) dirtyAreas.add(area);
   if (saveTimer) return;
   saveTimer = setTimeout(() => {
     saveTimer = null;
@@ -206,13 +239,15 @@ export function setMapStatus(msg) {
 
 export function configureWorld(identity = {}) {
   const nextKey = safeSlug([
-    identity.name || identity.host || 'world',
-    identity.host || '',
+    identity.host || identity.name || 'world',
     identity.port || '',
   ].filter(Boolean).join('@'));
   if (nextKey === worldKey) return;
   flushPendingMapSave();
   worldKey = nextKey;
+  loadToken++;
+  rooms.clear();
+  coordStatsByArea.clear();
   load();
 }
 
@@ -238,7 +273,7 @@ export function processRoomInfo(data) {
 
   const area = areaFrom(data);
   const rawCoords = getRawCoords(data);
-  const coordsTrusted = noteCoords(area, rawCoords);
+  const coordsTrusted = noteCoords(area, rawCoords, id);
   const normalized = normalizeExits(data || {});
   const existing = rooms.get(id) || {};
 
@@ -257,7 +292,17 @@ export function processRoomInfo(data) {
     coordSource: existing.coordSource || '',
     positioned: false,
     version: 0,
+    observed: true,
+    observedAt: Date.now(),
+    layoutState: 'learned',
+    walkSafe: {},
+    liveExits: normalized.exits,
+    liveDoors: normalized.exitDoors,
+    hasLiveObservation: true,
   };
+  for (const dir of Object.keys(next.exits)) {
+    next.walkSafe[dir] = !!DIR_OFFSETS[dir] || dir === 'in' || dir === 'out';
+  }
 
   if (coordsTrusted && rawCoords) {
     next.x = rawCoords.x;
@@ -282,7 +327,7 @@ export function processRoomInfo(data) {
   currentAreaName = area;
   active = true;
   if (!next.positioned) setMapStatus('Locating ' + (next.name || 'current room') + '...');
-  save();
+  save(area);
   return 1;
 }
 
@@ -291,47 +336,85 @@ export function flushPendingMapSave() {
     clearTimeout(saveTimer);
     saveTimer = null;
   }
-  try {
-    const data = {};
-    for (const [id, room] of rooms) data[id] = room;
-    localStorage.setItem(storageKey(), JSON.stringify({
+  const areas = Array.from(dirtyAreas);
+  dirtyAreas.clear();
+  for (const area of areas) {
+    const areaRooms = [];
+    for (const room of rooms.values()) if (room.area === area) areaRooms.push(room);
+    saveMapArea(STORAGE_SOURCE, worldKey, area, {
       schemaVersion: SCHEMA_VERSION,
-      active,
-      currentRoomId,
-      currentAreaName,
-      rooms: data,
-    }));
-  } catch (e) {
-    // Ignore localStorage failures; the live in-memory map still works.
+      rooms: areaRooms,
+    }).then(() => pruneMapAreas(STORAGE_SOURCE, worldKey, 25000, area)).catch((error) => {
+      storageError = error && error.message ? error.message : 'Map cache unavailable';
+    });
   }
 }
 
-export function load() {
+export async function load() {
+  const token = ++loadToken;
+  const loadingWorld = worldKey;
   rooms.clear();
   currentRoomId = null;
   currentAreaName = '';
   active = false;
   lastRoomId = null;
   try {
-    const raw = localStorage.getItem(storageKey());
-    if (!raw) return;
-    const data = JSON.parse(raw);
-    if (!data || data.schemaVersion !== SCHEMA_VERSION) {
-      localStorage.removeItem(storageKey());
-      return;
-    }
-    active = !!data.active;
-    currentRoomId = normalizeRoomId(data.currentRoomId);
-    currentAreaName = data.currentAreaName || '';
-    if (data.rooms) {
-      for (const [id, room] of Object.entries(data.rooms)) {
-        room.id = normalizeRoomId(room.id) || normalizeRoomId(id);
-        rooms.set(room.id, room);
+    if (typeof localStorage !== 'undefined') {
+      const legacyKey = LEGACY_STORAGE_PREFIX + loadingWorld;
+      const rawLegacy = localStorage.getItem(legacyKey);
+      if (rawLegacy) {
+        try {
+          const legacy = JSON.parse(rawLegacy);
+          const byArea = new Map();
+          if (legacy && legacy.schemaVersion === 1 && legacy.rooms) {
+            for (const room of Object.values(legacy.rooms)) {
+              if (!room || typeof room.area !== 'string') continue;
+              if (!byArea.has(room.area)) byArea.set(room.area, []);
+              byArea.get(room.area).push(room);
+            }
+            await Promise.all(Array.from(byArea, ([area, areaRooms]) =>
+              saveMapArea(STORAGE_SOURCE, loadingWorld, area, {
+                schemaVersion: SCHEMA_VERSION, rooms: areaRooms,
+              })));
+          }
+          localStorage.removeItem(legacyKey);
+        } catch (e) {
+          localStorage.removeItem(legacyKey);
+        }
       }
     }
+    const records = await loadMapAreas(STORAGE_SOURCE, loadingWorld);
+    if (token !== loadToken || loadingWorld !== worldKey) return;
+    for (const record of records) {
+      if (!record || record.schemaVersion !== SCHEMA_VERSION
+        || typeof record.area !== 'string' || !record.area || !Array.isArray(record.rooms)) {
+        await deleteMapArea(STORAGE_SOURCE, worldKey, record && record.area);
+        continue;
+      }
+      for (const room of record.rooms) {
+        if (!room || typeof room !== 'object' || room.id === undefined
+          || typeof room.area !== 'string' || !room.exits || typeof room.exits !== 'object') continue;
+        room.id = normalizeRoomId(room.id);
+        if (room.x !== null && room.x !== undefined) {
+          if (![room.x, room.y, room.z].map(Number).every(Number.isFinite)) continue;
+          room.x = Number(room.x);
+          room.y = Number(room.y);
+          room.z = Number(room.z);
+        }
+        room.walkSafe = room.walkSafe && typeof room.walkSafe === 'object' ? room.walkSafe : {};
+        room.liveExits = {};
+        room.liveDoors = {};
+        room.hasLiveObservation = false;
+        // A live Room.Info can beat IndexedDB hydration. Its observation is
+        // newer and must win, while cached rooms from other areas still load.
+        if (!rooms.has(room.id)) rooms.set(room.id, room);
+      }
+    }
+    active = rooms.size > 0;
     rebuildCoordStats();
   } catch (e) {
     rooms.clear();
+    storageError = e && e.message ? e.message : 'Map cache unavailable';
   }
 }
 
@@ -343,7 +426,8 @@ export function clearMapDataForArea(area) {
   if (currentRoomId && !rooms.has(currentRoomId)) currentRoomId = null;
   coordStatsByArea.delete(area);
   setMapStatus('Cleared ' + area + '. Explore to rebuild it.');
-  save();
+  dirtyAreas.delete(area);
+  deleteMapArea(STORAGE_SOURCE, worldKey, area).catch(() => {});
 }
 
 export function clearMapData() {
@@ -353,9 +437,8 @@ export function clearMapData() {
   active = false;
   lastRoomId = null;
   coordStatsByArea.clear();
-  try {
-    localStorage.removeItem(storageKey());
-  } catch (e) {}
+  dirtyAreas.clear();
+  clearMapSource(STORAGE_SOURCE, worldKey).catch(() => {});
 }
 
 export function isActive() {
@@ -391,6 +474,15 @@ export function getAreaName() {
   return currentAreaName;
 }
 
+export function getAuthority() { return 'learned'; }
+
+export function canWalkExit(room, dir, destId) {
+  if (!room || !room.walkSafe || !room.walkSafe[dir]) return false;
+  if (room.exitDoors && room.exitDoors[dir] >= 2) return false;
+  if (room.id === currentRoomId) return room.liveExits[dir] === normalizeRoomId(destId);
+  return room.exits && room.exits[dir] === normalizeRoomId(destId);
+}
+
 export function getMapStatus() {
   if (!mapStatusMessage || Date.now() - mapStatusAt > MAP_STATUS_TTL_MS) return '';
   return mapStatusMessage;
@@ -399,6 +491,8 @@ export function getMapStatus() {
 export function getWorldKey() {
   return worldKey;
 }
+
+export function getStorageError() { return storageError; }
 
 export function getClearMapActionLabel() {
   return 'Clear';

@@ -65,12 +65,11 @@ function seedWalkArea() {
   return area;
 }
 
-test('findPath routes the shortest way, including special exits', () => {
+test('findPath routes canonical movement and rejects unsafe special exits', () => {
   seedWalkArea();
   assert.deepEqual(
     sw.findPath('A', 'C').map((s) => s.dir), ['east', 'north']);
-  assert.deepEqual(
-    sw.findPath('A', 'D').map((s) => s.dir), ['east', 'enter']);
+  assert.equal(sw.findPath('A', 'D'), null, 'arbitrary enter is not auto-executed');
   assert.deepEqual(sw.findPath('A', 'A'), []);
 });
 
@@ -79,6 +78,30 @@ test('findPath refuses closed/locked doors and cross-area targets', () => {
   assert.equal(sw.findPath('A', 'L'), null, 'locked door is not routable');
   assert.equal(sw.findPath('A', 'E'), null, 'cross-area target unreachable');
   assert.equal(sw.findPath('A', 'nosuch'), null, 'unknown room unreachable');
+});
+
+test('speedwalk refuses a route missing from the current live exit snapshot', () => {
+  seedWalkArea();
+  v2.processCurrent({
+    protocol: 2, mapEpoch: 'trust-epoch', areaGeneration: 1,
+    id: 'A', name: 'Start', area: 'WalkLand', positioned: true,
+    x: 0, y: 0, z: 0, areaVersion: 1,
+    exits: { east: 'B' }, liveExits: {}, liveDoors: {},
+  });
+  sw.initSpeedwalk({ send: noop, rerender: noop, stepTimeoutMs: 5000 });
+  assert.equal(sw.startSpeedwalk('C'), false);
+  assert.ok(v2.getMapStatus().includes('No known path'));
+});
+
+test('identity-conflicted current rooms are never speedwalkable', () => {
+  seedWalkArea();
+  v2.processCurrent({
+    protocol: 2, mapEpoch: 'trust-epoch', areaGeneration: 1,
+    id: 'A', name: 'Conflicted Start', area: 'WalkLand', positioned: false,
+    layoutState: 'identity_conflict', areaVersion: 1,
+    liveExits: { east: 'B' }, liveDoors: {},
+  });
+  assert.equal(v2.canWalkExit(v2.getRoom('A'), 'east', 'B'), false);
 });
 
 test('speedwalk sends steps one at a time and verifies each arrival', () => {
@@ -92,6 +115,11 @@ test('speedwalk sends steps one at a time and verifies each arrival', () => {
   assert.ok(sw.isSpeedwalking());
   assert.ok(v2.getMapStatus().includes('Walking to North End'));
 
+  v2.processCurrent({
+    id: 'B', name: 'Middle', area: 'WalkLand', positioned: true,
+    x: 1, y: 0, z: 0, areaVersion: 1,
+    exits: { west: 'A', north: 'C', enter: 'D' },
+  });
   sw.notifyRoomChange('B');
   assert.deepEqual(sent, ['east', 'north'], 'verified arrival sends next step');
 
@@ -141,6 +169,11 @@ test('Darkwind.MapData2.Current frames drive the walk via the gmcp bus', () => {
     stepTimeoutMs: 5000 });
 
   sw.startSpeedwalk('C');
+  v2.processCurrent({
+    id: 'B', name: 'Middle', area: 'WalkLand', positioned: true,
+    x: 1, y: 0, z: 0, areaVersion: 1,
+    exits: { west: 'A', north: 'C' },
+  });
   gmcp.dispatch('Darkwind.MapData2.Current', { id: 'B' });
   assert.deepEqual(sent, ['east', 'north'], 'bus-delivered arrival advances');
   sw.cancelSpeedwalk();
@@ -167,6 +200,8 @@ test('generic Room.Info frames verify external speedwalks', () => {
 
   assert.equal(sw.startSpeedwalk('12', gmcpMap), true);
   assert.deepEqual(sent, ['east']);
+  gmcpMap.processRoomInfo({ num: 11, name: 'Outside Middle', area: 'Elsewhere',
+    exits: { west: 10, north: 12 } });
   gmcp.dispatch('Room.Info', { num: 11 });
   assert.deepEqual(sent, ['east', 'north']);
   gmcp.dispatch('Room.Info', { num: 12 });

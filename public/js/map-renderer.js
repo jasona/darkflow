@@ -104,8 +104,13 @@ function buildExitSpans(room, cz, source) {
       if (oneWay) {
         spans += '<span class="map-arrow map-arrow-' + abbr + '"></span>';
       }
+    } else {
+      // The graph edge is authoritative but collision repair placed the room
+      // somewhere non-adjacent. Show an adjusted stub rather than hiding a
+      // known exit or drawing a false straight connection.
+      spans += '<span class="map-stub map-stub-' + abbr
+        + ' map-stub-adjusted"></span>';
     }
-    // Connected room positioned elsewhere (not adjacent): no drawable line.
   }
   // Door ticks: a small state-colored marker mid-gap. A door may exist on a
   // direction with NO exit entry (the server strips exits behind closed
@@ -303,8 +308,9 @@ export function renderMap(bodyEl, source = mapData) {
         html += '<div class="map-tile"></div>';
       } else if (room.id === playerId) {
         const terrain = getTerrainName(room.environment);
+        const trustClass = room.layoutState ? ' map-layout-' + room.layoutState : '';
         html += '<div class="map-tile map-tile-room map-tile-' + terrain
-          + ' map-tile-player' + conflictClass(bucket)
+          + ' map-tile-player' + trustClass + conflictClass(bucket)
           + '" title="' + escAttr(tileTitle(room, bucket, source)) + '"'
           + ' data-room-id="' + escAttr(room.id) + '"'
           + conflictAttr(bucket) + '>'
@@ -312,8 +318,9 @@ export function renderMap(bodyEl, source = mapData) {
       } else {
         const terrain = getTerrainName(room.environment);
         const lastPos = pending && room.id === centerRoom.id ? ' map-tile-lastpos' : '';
+        const trustClass = room.layoutState ? ' map-layout-' + room.layoutState : '';
         html += '<div class="map-tile map-tile-room map-tile-' + terrain
-          + conflictClass(bucket) + lastPos
+          + trustClass + conflictClass(bucket) + lastPos
           + '" title="' + escAttr(tileTitle(room, bucket, source)) + '"'
           + ' data-room-id="' + escAttr(room.id) + '"'
           + conflictAttr(bucket) + '>'
@@ -346,6 +353,13 @@ export function renderMap(bodyEl, source = mapData) {
   if (areaName) {
     html += '<div class="map-areaname" title="' + escAttr(areaKey) + '">'
       + escAttr(areaName) + '</div>';
+  }
+  if (!browse && source.getAuthority) {
+    const authority = source.getAuthority();
+    html += '<div class="map-authority map-authority-' + escAttr(authority)
+      + '" title="' + (authority === 'authoritative'
+        ? 'Server-authoritative map data' : 'Locally learned map data') + '">'
+      + (authority === 'authoritative' ? 'Server' : 'Learned') + '</div>';
   }
   if (!browse) {
     html += '<div class="map-roomname">' + escAttr(titleRoom.name) + '</div>';
@@ -451,11 +465,15 @@ function chooseRoomForTile(bucket, currentId, distances, connectedVisibleCount) 
 
   if (best) return best;
 
-  // If the known exit graph is sparse or one-way in this area, do not leave the
-  // map black. Fall back to the positioned room in this coordinate bucket.
-  if (connectedVisibleCount < 3 && bucket.length) return bucket[0];
-
-  return bucket.length === 1 ? bucket[0] : null;
+  if (bucket.length === 1) return bucket[0];
+  if (!bucket.length) return null;
+  // Conflicts remain visible, but selection is stable and confidence-aware.
+  // Never let mapping iteration order decide what the player sees.
+  return bucket.slice().sort((a, b) => {
+    const aRank = a.layoutState === 'verified' ? 0 : a.observed ? 1 : 2;
+    const bRank = b.layoutState === 'verified' ? 0 : b.observed ? 1 : 2;
+    return aRank - bRank || String(a.id).localeCompare(String(b.id));
+  })[0];
 }
 
 function conflictClass(bucket) {
