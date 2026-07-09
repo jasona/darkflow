@@ -87,3 +87,18 @@ test('quest pane shows empty state when all quests are completed', () => {
   assert.match(bodyEl.innerHTML, /No active quests/);
   assert.doesNotMatch(bodyEl.innerHTML, /Finished Quest/);
 });
+
+test('quest pane identifies quests ready for waysteward turn-in', () => {
+  const bodyEl = { innerHTML: '' };
+
+  panelRenderers.quests(bodyEl, {
+    list: [{
+      name: 'Finished Work', status: 'Ready to Turn In',
+      readyToTurnIn: true, giverName: 'Black Sap Grove',
+      current: 3, total: 3,
+    }],
+  });
+
+  assert.match(bodyEl.innerHTML, /Finished Work/);
+  assert.match(bodyEl.innerHTML, /Ready to turn in at Black Sap Grove waysteward/);
+});

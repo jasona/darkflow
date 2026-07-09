@@ -1281,6 +1281,11 @@ export const panelRenderers = {
         html += '<span class="quest-list-status">' + escHtml(q.status) + '</span>';
         html += '<div class="quest-bar quest-bar-sm"><div class="quest-bar-fill" style="width:' + qPct + '%"></div></div>';
         html += '</div></div>';
+        if (q.readyToTurnIn) {
+          var giver = q.giverName || q.giverArea || 'the area waysteward';
+          html += '<div class="quest-turnin">Ready to turn in at ' +
+            escHtml(giver) + ' waysteward</div>';
+        }
         if (Array.isArray(q.objectives) && q.objectives.length > 0) {
           html += '<div class="quest-objectives">';
           for (var k = 0; k < q.objectives.length; k++) {

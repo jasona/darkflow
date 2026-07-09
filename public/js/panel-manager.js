@@ -3307,6 +3307,14 @@ export const panelManager = {
               quest.current = totalCurrent;
             }
           }
+          if (typeof data.status === 'string' && data.status) {
+            quest.status = data.status;
+          }
+          if (data.readyToTurnIn !== undefined) {
+            quest.readyToTurnIn = !!data.readyToTurnIn;
+            if (quest.readyToTurnIn) quest.status = 'Ready to Turn In';
+          }
+          if (data.giverArea) quest.giverArea = data.giverArea;
           break;
         }
       }

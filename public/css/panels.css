@@ -1906,6 +1906,7 @@ body.zork-only-mode #panels-menu {
 .quest-list-name { font-size: calc(12px * var(--pane-font-scale, 1)); color: var(--df-text); }
 .quest-list-info { display: flex; align-items: center; gap: 6px; }
 .quest-list-status { font-size: calc(11px * var(--pane-font-scale, 1)); color: var(--df-muted); min-width: 60px; }
+.quest-turnin { margin: 2px 0 6px; color: #ffd84d; font-size: calc(11px * var(--pane-font-scale, 1)); font-weight: 700; }
 
 /* ── Achievement Panel ──────────────────────────────────────────────── */
 .ach-summary {
