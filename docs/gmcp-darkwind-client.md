@@ -185,7 +185,6 @@ reverse meter). This is what version-1 clients receive today, unchanged.
 | `announcementsBadge` | Subscribe to unread-count badge updates (`Darkwind.Announcements.State`/`Update`) |
 | `announcementsList` | Request a `Darkwind.Announcements.List` snapshot. The web client sets this to `true` only when the user opens the announcements modal, and clears the flag locally after sending so subsequent subscription messages will not re-request the snapshot |
 | `combatPane` | Strict visual-combat readiness. It is `true` only while the initialized Enemy/Combat pane is visible, expanded, and able to present `Darkwind.Combat` events. Unlike legacy panel gates, an absent subscription never implies readiness. |
-| `tutorialPane` | Strict new-player tutorial hover capability. It is `true` after the dedicated renderer mounts successfully, including while the card is minimized or no tutorial is active; it is `false` while disconnected, in Zork-only mode, or after a renderer failure. See [Darkwind.Tutorial](gmcp-darkwind-tutorial.md). |
 | `visualEffects` | Subscribe to optional `Darkwind.Visual.State` world ambience and `Darkwind.Visual.Events` combat/spell cues while the local Game visual effects setting is enabled. Low-health presentation is derived from `Char.Vitals`. It never changes terminal-text delivery or `combatPane` readiness. |
 | `enemyAutoOpen` | Allow the server to auto-open an enemy panel when combat begins |
 | `windows` | Client capability hint for `Darkwind.Window.*` |

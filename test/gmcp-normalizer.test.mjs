@@ -16,10 +16,6 @@ test('canonicalizes common GMCP package names case-insensitively', () => {
   assert.equal(canonicalPackageName('darkwind.visual.events'), 'Darkwind.Visual.Events');
   assert.equal(canonicalPackageName('DARKWIND.VISUAL.STATE'), 'Darkwind.Visual.State');
   assert.equal(canonicalPackageName('darkwind.visual.preview'), 'Darkwind.Visual.Preview');
-  assert.equal(canonicalPackageName('darkwind.tutorial.state'), 'Darkwind.Tutorial.State');
-  assert.equal(canonicalPackageName('DARKWIND.TUTORIAL.CONTROL'), 'Darkwind.Tutorial.Control');
-  assert.equal(canonicalPackageName('DARKWIND.TUTORIAL.ACTION'), 'Darkwind.Tutorial.Action');
-  assert.equal(canonicalPackageName('darkwind.tutorial.resync'), 'Darkwind.Tutorial.Resync');
   assert.equal(canonicalPackageName('darkwind.mapdata2.error'), 'Darkwind.MapData2.Error');
 });
 
