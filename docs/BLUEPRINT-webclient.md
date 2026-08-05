@@ -7,8 +7,8 @@ This blueprint describes how to build a web-based game client that connects
 to the MUD via WebSocket. Hand this file to Claude in a new session to
 implement it.
 
-The driver source lives at `/home/jasona/code/ldmud/`. The WebSocket
-implementation is in `src/pkg-websocket.c` and `src/pkg-websocket.h`.
+The driver source lives at `../ldmud/`. The WebSocket implementation is in
+`src/pkg-websocket.c` and `src/pkg-websocket.h`.
 
 ---
 
@@ -121,7 +121,7 @@ Common ANSI codes to handle:
 
 ### File Structure
 
-Create a single file: `/home/jasona/code/ldmud/mudlib/www/webclient.html`
+Create a single file: `../ldmud/mudlib/www/webclient.html`
 
 This file will be a fully self-contained web application.
 

@@ -51,7 +51,7 @@ The MUD server codebase is at `../darkwind-nextgen/`. Key server-side files for 
 ## Key Design Constraints
 
 - Never use non-ASCII characters in any code files (LPC only supports ASCII, and this has caused server crashes)
-- The driver source is at `/home/jasona/code/ldmud/`
+- The driver source is at `../ldmud/`
 - GMCP is delivered via binary WebSocket frames, not telnet subnegotiation
 - Must handle partial ANSI sequences spanning message boundaries
 - Batch DOM updates via requestAnimationFrame to handle rapid server messages
