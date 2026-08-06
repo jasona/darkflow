@@ -33,7 +33,10 @@ jobs:
           cmp dist/client/index.html public/index.html
           test -f dist/client/phase0/index.html
           grep -Rq "Darkflow Phase 0 harness" dist/client/assets
-      - run: xvfb-run --auto-servernum npm run desktop:smoke
+      - name: Desktop smoke
+        run: xvfb-run --auto-servernum npm run desktop:smoke
+        env:
+          ELECTRON_DISABLE_SANDBOX: 1
 
   docker:
     name: Docker smoke
