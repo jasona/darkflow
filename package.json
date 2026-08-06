@@ -37,6 +37,8 @@
     "version:set": "node desktop/set-version.cjs",
     "dev": "vite",
     "build": "vite build",
+    "verify:bundle": "node scripts/verify-bundle-sentinel.mjs",
+    "postbuild": "npm run verify:bundle",
     "typecheck": "ttsc --noEmit --project tsconfig.json && ttsc --noEmit --project tsconfig.node.json",
     "check": "svelte-check --tsgo --tsconfig ./tsconfig.json --fail-on-warnings"
   },
