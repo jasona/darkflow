@@ -35,7 +35,9 @@
     "desktop:steam:win": "electron-builder --win --dir --x64 --publish never --config.extraMetadata.darkflowDistribution=steam",
     "desktop:steam:linux": "electron-builder --linux --dir --x64 --publish never --config.extraMetadata.darkflowDistribution=steam",
     "version:set": "node desktop/set-version.cjs",
-    "typecheck": "ttsc --noEmit --project tsconfig.json",
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "ttsc --noEmit --project tsconfig.json && ttsc --noEmit --project tsconfig.node.json",
     "check": "svelte-check --tsgo --tsconfig ./tsconfig.json --fail-on-warnings"
   },
   "dependencies": {
@@ -47,6 +49,7 @@
   "devDependencies": {
     "electron": "^43.1.1",
     "@sveltejs/vite-plugin-svelte": "7.2.0",
+    "@types/node": "24.13.3",
     "@ttsc/unplugin": "0.23.0",
     "@typescript/native": "npm:typescript@7.0.2",
     "electron-builder": "^26.15.3",

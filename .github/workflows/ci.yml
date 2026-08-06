@@ -24,6 +24,12 @@ jobs:
       - run: npm run typecheck
       - run: npm run check
       - run: npm test
+      - run: npm run build
+      - name: Verify client build artifacts
+        run: |
+          cmp dist/client/index.html public/index.html
+          test -f dist/client/phase0/index.html
+          grep -Rq "Darkflow Phase 0 harness" dist/client/assets
       - run: xvfb-run --auto-servernum npm run desktop:smoke
 
   docker:
