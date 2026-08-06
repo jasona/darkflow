@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - main
+      # pull_request only auto-runs once for workflows not yet on main;
+      # push keeps CI running on feature-branch commits until this lands.
+      - plan/**
 
 permissions:
   contents: read
