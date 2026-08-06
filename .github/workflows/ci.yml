@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    name: Test and desktop smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.15.0
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run check
+      - run: npm test
+      - run: xvfb-run --auto-servernum npm run desktop:smoke
+
+  docker:
+    name: Docker smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build --tag darkflow-ci .
+      - name: Start and probe container
+        shell: bash
+        run: |
+          container="$(docker run --detach --env MCP_ENABLED=0 --publish 127.0.0.1:3000:3000 darkflow-ci)"
+          trap 'docker logs "$container"; docker rm --force "$container"' EXIT
+          for _ in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3000/ping >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:3000/ >/dev/null
+          curl --fail --silent http://127.0.0.1:3000/config.json >/dev/null
+          curl --fail --silent http://127.0.0.1:3000/api/version >/dev/null
+          curl --fail --silent http://127.0.0.1:3000/vendor/howler.core.min.js >/dev/null
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:3000/ping)" = "204"
