@@ -40,7 +40,7 @@ remain `Darkwind.*` for compatibility.
 
 ## Quick Start
 
-Requires [Node.js](https://nodejs.org/) 18+.
+Requires [Node.js](https://nodejs.org/) 22.15.0+.
 
 ```bash
 git clone https://github.com/jasona/darkflow.git

@@ -9,6 +9,9 @@
   },
   "desktopName": "Darkwind",
   "homepage": "https://play.darkwind.ai",
+  "engines": {
+    "node": ">=22.15.0"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/jasona/darkflow.git"
@@ -31,7 +34,9 @@
     "desktop:steam:mac": "electron-builder --mac --dir --universal --publish never --config.extraMetadata.darkflowDistribution=steam",
     "desktop:steam:win": "electron-builder --win --dir --x64 --publish never --config.extraMetadata.darkflowDistribution=steam",
     "desktop:steam:linux": "electron-builder --linux --dir --x64 --publish never --config.extraMetadata.darkflowDistribution=steam",
-    "version:set": "node desktop/set-version.cjs"
+    "version:set": "node desktop/set-version.cjs",
+    "typecheck": "ttsc --noEmit --project tsconfig.json",
+    "check": "svelte-check --tsgo --tsconfig ./tsconfig.json --fail-on-warnings"
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
@@ -41,7 +46,16 @@
   },
   "devDependencies": {
     "electron": "^43.1.1",
-    "electron-builder": "^26.15.3"
+    "@sveltejs/vite-plugin-svelte": "7.2.0",
+    "@ttsc/unplugin": "0.23.0",
+    "@typescript/native": "npm:typescript@7.0.2",
+    "electron-builder": "^26.15.3",
+    "svelte": "5.56.8",
+    "svelte-check": "4.7.4",
+    "ttsc": "0.23.0",
+    "typia": "13.2.0",
+    "typescript": "6.0.3",
+    "vite": "8.1.5"
   },
   "build": {
     "appId": "ai.darkwind.game",
