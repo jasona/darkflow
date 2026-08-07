@@ -125,6 +125,10 @@ test(
       assert.equal(phaseResponse.status, 200);
       assert.match(await phaseResponse.text(), /\/@vite\/client/);
 
+      const phaseWithoutSlashResponse = await fetch(`${origin}/phase0`);
+      assert.equal(phaseWithoutSlashResponse.status, 200);
+      assert.match(await phaseWithoutSlashResponse.text(), /src="\/phase0\/main\.ts"/);
+
       const clientResponse = await fetch(`${origin}/@vite/client`);
       assert.equal(clientResponse.status, 200);
       assert.match(
