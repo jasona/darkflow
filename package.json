@@ -60,6 +60,7 @@
     "@ttsc/unplugin": "0.23.0",
     "@types/node": "24.13.3",
     "@typescript/native": "npm:typescript@7.0.2",
+    "dockview": "7.0.4",
     "electron": "^43.1.1",
     "electron-builder": "^26.15.3",
     "eslint": "^10.8.0",
