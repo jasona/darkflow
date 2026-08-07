@@ -1,0 +1,9 @@
+dist/
+node_modules/
+desktop/
+lib/
+mud-test-mcp/
+public/
+scripts/
+test/
+server.js
