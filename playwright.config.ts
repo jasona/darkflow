@@ -10,9 +10,26 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:3123",
   },
   projects: [
-    { name: "chromium", use: devices["Desktop Chrome"] },
-    { name: "firefox", use: devices["Desktop Firefox"] },
-    { name: "webkit", use: devices["Desktop Safari"] },
+    {
+      name: "chromium",
+      testIgnore: /workspace-touch\.spec\.ts/,
+      use: devices["Desktop Chrome"],
+    },
+    {
+      name: "firefox",
+      testIgnore: /workspace-touch\.spec\.ts/,
+      use: devices["Desktop Firefox"],
+    },
+    {
+      name: "webkit",
+      testIgnore: /workspace-touch\.spec\.ts/,
+      use: devices["Desktop Safari"],
+    },
+    {
+      name: "mobile-chromium",
+      testMatch: /workspace-touch\.spec\.ts/,
+      use: devices["Pixel 7"],
+    },
   ],
   webServer: {
     command: "node server.js --dev",
