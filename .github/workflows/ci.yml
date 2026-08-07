@@ -23,6 +23,10 @@ jobs:
         with:
           node-version: 22.15.0
           cache: npm
+      - name: Verify Node and npm versions
+        run: |
+          test "$(node --version)" = "v22.15.0"
+          test "$(npm --version)" = "10.9.2"
       - run: npm ci
       - run: npm run format:check
       - run: npm run lint
@@ -75,6 +79,10 @@ jobs:
         with:
           node-version: 22.15.0
           cache: npm
+      - name: Verify Node and npm versions
+        run: |
+          test "$(node --version)" = "v22.15.0"
+          test "$(npm --version)" = "10.9.2"
       - run: npm ci
       - id: pw
         run: |
