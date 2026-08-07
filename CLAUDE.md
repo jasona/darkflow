@@ -93,3 +93,9 @@ this client:
   discovers files under a `test/` directory.
 - `/mcp` mounts only when `mud-test-mcp` dependencies are installed. Root-level
   `npm ci` does not install those dependencies.
+- ESLint and Prettier cover the Phase 0 TypeScript, Svelte, and browser-test
+  surface plus their configuration files. Run `npm run lint` and
+  `npm run format:check` before committing.
+- Legacy JavaScript, including `server.js`, `lib/`, `desktop/`, and `public/`,
+  is outside the formatter boundary. Preserve each legacy file's existing
+  style; do not mass-format it.

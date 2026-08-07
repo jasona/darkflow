@@ -3,21 +3,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const root = process.cwd();
-const fixturePath = path.join(
-  root,
-  "client",
-  "phase0",
-  "hmr-protocol-fixture.ts",
-);
+const fixturePath = path.join(root, "client", "phase0", "hmr-protocol-fixture.ts");
 
 test("phase 0 harness renders the Typia proof", async ({ page }) => {
   await page.goto("/phase0/");
-  await expect(
-    page.getByRole("heading", { name: "Darkflow Phase 0 harness" }),
-  ).toBeVisible();
-  await expect(
-    page.locator('[data-testid="typia-proof"][data-typia-ok="true"]'),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Darkflow Phase 0 harness" })).toBeVisible();
+  await expect(page.locator('[data-testid="typia-proof"][data-typia-ok="true"]')).toBeVisible();
 });
 
 test("legacy root renders its client shell", async ({ page }) => {
@@ -34,17 +25,10 @@ test("protocol validator HMR preserves window state", async ({ page }) => {
     await page.evaluate(() => {
       (window as unknown as Record<string, string>).__hmrSentinel = "alive";
     });
-    await fs.writeFile(
-      fixturePath,
-      originalFixture.replace("id: number", "id: string"),
-    );
+    await fs.writeFile(fixturePath, originalFixture.replace("id: number", "id: string"));
     await expect(probe).toHaveText("false");
     await expect
-      .poll(() =>
-        page.evaluate(
-          () => (window as unknown as Record<string, string>).__hmrSentinel,
-        ),
-      )
+      .poll(() => page.evaluate(() => (window as unknown as Record<string, string>).__hmrSentinel))
       .toBe("alive");
   } finally {
     await fs.writeFile(fixturePath, originalFixture);
