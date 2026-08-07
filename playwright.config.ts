@@ -16,10 +16,10 @@ export default defineConfig({
   ],
   webServer: {
     command: "node server.js --dev",
-    url: "http://127.0.0.1:3123/ping",
+    url: "http://127.0.0.1:3123/phase0/main.ts",
     env: { PORT: "3123", DARKFLOW_VITE_POLL: "1" },
     reuseExistingServer: !process.env.CI,
     stdout: "pipe",
-    timeout: 120_000,
+    timeout: 300_000,
   },
 });
