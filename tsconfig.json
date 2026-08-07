@@ -11,7 +11,12 @@
     "verbatimModuleSyntax": true,
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
-    "allowJs": false
+    "allowJs": false,
+    "allowImportingTsExtensions": true
   },
-  "include": ["client/phase0/**/*.ts", "client/phase0/**/*.d.ts", "client/phase0/**/*.svelte"]
+  "include": [
+    "client/phase0/**/*.ts",
+    "client/phase0/**/*.d.ts",
+    "client/phase0/**/*.svelte"
+  ]
 }

@@ -1,4 +1,5 @@
 const express = require('express');
+const os = require('os');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -25,6 +26,9 @@ const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const DESKTOP_COOKIE_NAME = 'darkflow-desktop-token';
 const HOWLER_CORE_PATH = require.resolve('howler/dist/howler.core.min.js');
+let initPromise = null;
+let serveInfo = { mode: null, mcp: null };
+let devClient = null;
 
 function hasDesktopSession(req) {
   if (process.env.DARKFLOW_DESKTOP !== '1') return true;
@@ -84,36 +88,15 @@ app.get('/vendor/howler.core.min.js', (req, res) => {
   res.sendFile(HOWLER_CORE_PATH);
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Mount the Darkflow MCP relay at /mcp (optional) so starting this web client
-// also serves MCP for LLM clients on the same port. The relay lives in the
-// sibling mud-test-mcp package; it is loaded dynamically and skipped gracefully
-// if absent or unable to load, so it can never break the web client. Configure
-// with MCP_PATH / MCP_AUTH_TOKEN; disable entirely with MCP_ENABLED=0.
-if (process.env.MCP_ENABLED !== '0') {
-  const { pathToFileURL } = require('url');
-  const mcpModule = path.join(__dirname, 'mud-test-mcp', 'core', 'mcp.js');
-  import(pathToFileURL(mcpModule).href)
-    .then(({ attachMcp }) => {
-      const info = attachMcp(app, {
-        path: process.env.MCP_PATH || '/mcp',
-        token: process.env.MCP_AUTH_TOKEN,
-      });
-      console.log(`[mcp] mounted at ${info.path}` + (info.authenticated ? ' (bearer auth on)' : ' (open)'));
-    })
-    .catch((err) => console.warn('[mcp] not mounted:', err.message));
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// /proxy : WebSocket ↔ TCP/TLS bridge for connecting to non-WebSocket MUDs.
+// -----------------------------------------------------------------------------
+// /proxy : WebSocket <-> TCP/TLS bridge for connecting to non-WebSocket MUDs.
 //
 // Browser opens   ws[s]://<this-server>/proxy?host=X&port=Y&tls=0|1
 // We open         net.connect({host, port}) or tls.connect(...)
 // and pipe bytes both ways unmodified.
 //
 // v1: open relay with logging. Future: allowlist (see docs).
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 // Telnet/GMCP parser lives in lib/telnet-parser.js so it can be shared with
 // out-of-process tooling (e.g. the headless MUD test harness) without pulling
@@ -129,6 +112,10 @@ const { IAC, DO, TELOPT_GMCP } = constants;
 // to bound memory if a non-GMCP MUD is connected.
 const MAX_PENDING_GMCP_BYTES = 64 * 1024;
 
+const devMode = process.argv.includes('--dev');
+if (devMode && !process.env.DARKFLOW_LOG_DIR) {
+  process.env.DARKFLOW_LOG_DIR = path.join(os.tmpdir(), 'darkflow-dev-log');
+}
 const LOG_DIR = process.env.DARKFLOW_LOG_DIR || path.join(__dirname, 'log');
 const PROXY_LOG = path.join(LOG_DIR, 'proxy.log');
 try { fs.mkdirSync(LOG_DIR, { recursive: true }); } catch(e) { /* ignore */ }
@@ -143,7 +130,18 @@ function logProxy(entry) {
 }
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/proxy' });
+const wss = new WebSocketServer({ noServer: true });
+
+server.on('upgrade', (req, socket, head) => {
+  const { pathname } = new URL(req.url, 'http://localhost');
+  if (pathname === '/proxy') {
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+    return;
+  }
+  if (devClient && devClient.claimsUpgrade(req)) return;
+  socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+  socket.destroy();
+});
 
 wss.on('error', (error) => {
   console.error('[proxy] WebSocket server error:', error.message);
@@ -333,8 +331,60 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-function startServer({ port = PORT, host = process.env.HOST } = {}) {
+/**
+ * Mounts the optional MCP relay before the selected frontend middleware.
+ */
+async function initializeApp(mode) {
+  if (!['legacy', 'dev'].includes(mode)) {
+    throw new Error(`Unknown serve mode: ${mode}`);
+  }
+
+  const mcpPath = process.env.MCP_PATH || '/mcp';
+  if (process.env.MCP_ENABLED === '0') {
+    serveInfo.mcp = { mounted: false, path: mcpPath, reason: 'disabled' };
+  } else {
+    const { pathToFileURL } = require('url');
+    const mcpModule = path.join(__dirname, 'mud-test-mcp', 'core', 'mcp.js');
+    let timeout;
+    try {
+      const module = await Promise.race([
+        import(pathToFileURL(mcpModule).href),
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('mount timed out')), 5000);
+        }),
+      ]);
+      const info = module.attachMcp(app, {
+        path: mcpPath,
+        token: process.env.MCP_AUTH_TOKEN,
+      });
+      serveInfo.mcp = { mounted: true, path: info.path, reason: null };
+      console.log(`[mcp] mounted at ${info.path}` + (info.authenticated ? ' (bearer auth on)' : ' (open)'));
+    } catch (error) {
+      serveInfo.mcp = { mounted: false, path: mcpPath, reason: error.message };
+      console.warn('[mcp] not mounted:', error.message);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  app.use(express.static(path.join(__dirname, 'public')));
+  if (mode === 'dev') {
+    devClient = await require('./lib/dev-client.js').attachDevClient({
+      app,
+      server,
+      root: __dirname,
+    });
+  }
+  serveInfo.mode = mode;
+}
+
+/**
+ * Starts the shared HTTP server after initializing its selected serve mode.
+ */
+async function startServer({ port = PORT, host = process.env.HOST, mode = 'legacy' } = {}) {
   if (server.listening) return Promise.resolve(server.address());
+  initPromise ??= initializeApp(mode);
+  await initPromise;
 
   return new Promise((resolve, reject) => {
     const onError = (error) => {
@@ -352,9 +402,16 @@ function startServer({ port = PORT, host = process.env.HOST } = {}) {
   });
 }
 
-function stopServer() {
+/**
+ * Stops Vite, proxy clients, and the shared HTTP server.
+ */
+async function stopServer() {
+  await devClient?.close();
+  devClient = null;
+  initPromise = null;
+  serveInfo = { mode: null, mcp: null };
   for (const client of wss.clients) client.terminate();
-  if (!server.listening) return Promise.resolve();
+  if (!server.listening) return;
 
   return new Promise((resolve, reject) => {
     server.close((error) => {
@@ -365,7 +422,7 @@ function stopServer() {
 }
 
 if (require.main === module) {
-  startServer().then((address) => {
+  startServer({ mode: devMode ? 'dev' : 'legacy' }).then((address) => {
     const port = address && typeof address === 'object' ? address.port : PORT;
     console.log(`Darkflow listening on port ${port}`);
     console.log(`Proxy endpoint: ws[s]://<host>:${port}/proxy?host=X&port=Y&tls=0|1`);
@@ -375,11 +432,19 @@ if (require.main === module) {
   });
 }
 
+/**
+ * Returns the selected serve mode and optional MCP mount result.
+ */
+function getServeInfo() {
+  return serveInfo;
+}
+
 module.exports = {
   app,
   server,
   startServer,
   stopServer,
+  getServeInfo,
   makeTelnetParser,
   wrapGmcp,
   constants,

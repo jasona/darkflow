@@ -62,3 +62,30 @@ jobs:
           curl --fail --silent http://127.0.0.1:3000/api/version >/dev/null
           curl --fail --silent http://127.0.0.1:3000/vendor/howler.core.min.js >/dev/null
           test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:3000/ping)" = "204"
+
+  browser:
+    name: Browser integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.15.0
+          cache: npm
+      - run: npm ci
+      - id: pw
+        run: |
+          version="$(node -p "require('./package-lock.json').packages['node_modules/@playwright/test'].version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npm run test:browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/

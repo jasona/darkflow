@@ -1,5 +1,6 @@
 import { mount } from "svelte";
 import App from "./App.svelte";
+import { hmrProbe } from "./hmr-probe";
 import { runTypiaProof } from "./typia-proof";
 
 const target = document.getElementById("app");
@@ -8,4 +9,4 @@ if (!target) {
 }
 
 const proof = runTypiaProof();
-mount(App, { target, props: { proof } });
+mount(App, { target, props: { proof, hmrProbe } });

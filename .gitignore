@@ -4,3 +4,5 @@ log/
 dist/
 .DS_Store
 .svelte-check/
+playwright-report/
+test-results/

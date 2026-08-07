@@ -83,3 +83,13 @@ this client:
 - Target browsers: Chrome 90+, Firefox 90+, Safari 15+, Edge 90+
 - Tile assets served from `public/assets/tiles/` (22 terrain JPGs + 1 player
   PNG)
+- `@ttsc/unplugin` hashes every non-ignored file under the repository root for
+  each transform validation. Development relocates `DARKFLOW_LOG_DIR` so proxy
+  logs do not invalidate that hash.
+- All WebSocket upgrade routing goes through the dispatcher in `server.js`. The
+  proxy `WebSocketServer` uses `noServer`; a path-bound server aborts every
+  other upgrade with HTTP 400.
+- Playwright specs live in `e2e/`, never under `test/`, because `node --test`
+  discovers files under a `test/` directory.
+- `/mcp` mounts only when `mud-test-mcp` dependencies are installed. Root-level
+  `npm ci` does not install those dependencies.
