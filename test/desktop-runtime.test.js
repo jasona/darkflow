@@ -6,7 +6,19 @@ const {
   isAllowedAppUrl,
   isSafeExternalUrl,
   isSteamDistribution,
+  selectDesktopServeMode,
 } = require('../desktop/runtime.cjs');
+
+test('desktop serve mode uses built assets only for packaged or explicit built launches', () => {
+  assert.equal(selectDesktopServeMode({ isPackaged: true, argv: [] }), 'built');
+  assert.equal(selectDesktopServeMode({ isPackaged: false, argv: ['electron', '.', '--built-client'] }), 'built');
+  assert.equal(selectDesktopServeMode({ isPackaged: false, argv: ['electron', '.'] }), 'legacy');
+  assert.equal(selectDesktopServeMode({
+    isPackaged: false,
+    argv: ['electron', '.'],
+    env: { NODE_ENV: 'production' },
+  }), 'legacy');
+});
 
 test('Steam distribution is detected from build metadata, environment, or arguments', () => {
   assert.equal(isSteamDistribution({ distribution: 'steam', argv: [], env: {} }), true);

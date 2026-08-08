@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { once } from "node:events";
 import WebSocket from "ws";
 
@@ -85,6 +85,64 @@ async function assertProxyRejections(origin, port) {
   } finally {
     process.env.DARKFLOW_DESKTOP = "0";
     delete process.env.DARKFLOW_DESKTOP_TOKEN;
+  }
+}
+
+async function assertSourceFreeBuiltRuntime() {
+  const runtimeRoot = await fs.mkdtemp(
+    path.join(path.dirname(root), "darkflow-built-runtime-"),
+  );
+  let runtimeServer;
+
+  try {
+    await fs.mkdir(path.join(runtimeRoot, "dist"), { recursive: true });
+    await Promise.all([
+      fs.copyFile(
+        path.join(root, "server.js"),
+        path.join(runtimeRoot, "server.js"),
+      ),
+      fs.copyFile(
+        path.join(root, "package.json"),
+        path.join(runtimeRoot, "package.json"),
+      ),
+      fs.cp(path.join(root, "lib"), path.join(runtimeRoot, "lib"), {
+        recursive: true,
+      }),
+      fs.cp(artifactDir, path.join(runtimeRoot, "dist", "client"), {
+        recursive: true,
+      }),
+      fs.symlink(
+        path.join(root, "node_modules"),
+        path.join(runtimeRoot, "node_modules"),
+      ),
+    ]);
+    await assert.rejects(fs.stat(path.join(runtimeRoot, "public")), {
+      code: "ENOENT",
+    });
+
+    runtimeServer = (
+      await import(pathToFileURL(path.join(runtimeRoot, "server.js")).href)
+    ).default;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const address = await runtimeServer.startServer({
+        port: 0,
+        host: "127.0.0.1",
+        mode: "built",
+      });
+      const response = await fetch(`http://127.0.0.1:${address.port}/`);
+      assert.equal(response.status, 200);
+      assert.equal(
+        await response.text(),
+        await fs.readFile(
+          path.join(runtimeRoot, "dist", "client", "index.html"),
+          "utf8",
+        ),
+      );
+      await runtimeServer.stopServer();
+    }
+  } finally {
+    await runtimeServer?.stopServer();
+    await fs.rm(runtimeRoot, { recursive: true, force: true });
   }
 }
 
@@ -232,6 +290,8 @@ try {
   });
   assert.ok(retryAddress.port > 0);
   await stopServer();
+
+  await assertSourceFreeBuiltRuntime();
 
   const frontendStackLength = app._router.stack.length;
   const devAddress = await startServer({

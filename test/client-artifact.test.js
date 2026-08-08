@@ -7,6 +7,7 @@ const test = require("node:test");
 const {
   ClientArtifactError,
   validateClientArtifact,
+  validateClientSourceParity,
 } = require("../lib/client-artifact");
 const packageMetadata = require("../package.json");
 
@@ -50,7 +51,7 @@ async function createFixture(t, version = "1.2.3") {
     ),
   ]);
 
-  return { artifactDir, publicDir, version };
+  return { root, artifactDir, publicDir, version };
 }
 
 async function expectInvalid(options, pattern) {
@@ -62,13 +63,31 @@ async function expectInvalid(options, pattern) {
   );
 }
 
-test("accepts a complete client artifact", async (t) => {
+async function expectInvalidParity(options, pattern) {
+  await assert.rejects(
+    validateClientSourceParity(options),
+    (error) =>
+      error instanceof ClientArtifactError &&
+      error.violations.some((violation) => pattern.test(violation)),
+  );
+}
+
+test("accepts a complete client artifact without its public source", async (t) => {
   const fixture = await createFixture(t);
+  await fs.rm(fixture.publicDir, { recursive: true });
   const metadata = await validateClientArtifact({
-    ...fixture,
+    artifactDir: fixture.artifactDir,
     expectedVersion: fixture.version,
   });
   assert.deepEqual(metadata, { version: fixture.version });
+});
+
+test("accepts complete client source parity", async (t) => {
+  const fixture = await createFixture(t);
+  await validateClientSourceParity({
+    artifactDir: fixture.artifactDir,
+    publicDir: fixture.publicDir,
+  });
 });
 
 test("rejects a missing artifact directory", async (t) => {
@@ -89,6 +108,24 @@ test("rejects a missing required entry", async (t) => {
   await expectInvalid(
     { ...fixture, expectedVersion: fixture.version },
     /missing required file: index\.html/,
+  );
+});
+
+test("rejects missing version metadata", async (t) => {
+  const fixture = await createFixture(t);
+  await fs.rm(path.join(fixture.artifactDir, "version.json"));
+  await expectInvalid(
+    { artifactDir: fixture.artifactDir, expectedVersion: fixture.version },
+    /missing required file: version\.json/,
+  );
+});
+
+test("rejects a missing Phase 0 entry", async (t) => {
+  const fixture = await createFixture(t);
+  await fs.rm(path.join(fixture.artifactDir, "phase0", "index.html"));
+  await expectInvalid(
+    { artifactDir: fixture.artifactDir, expectedVersion: fixture.version },
+    /missing required file: phase0\/index\.html/,
   );
 });
 
@@ -121,16 +158,16 @@ test("rejects mismatched version metadata", async (t) => {
   );
 });
 
-test("reports every incomplete public copy violation", async (t) => {
+test("source parity reports every incomplete public copy violation", async (t) => {
   const fixture = await createFixture(t);
   await fs.rm(path.join(fixture.artifactDir, "assets", "logo.txt"));
   await fs.writeFile(path.join(fixture.publicDir, "config.json"), "source\n");
   await fs.writeFile(path.join(fixture.artifactDir, "config.json"), "built\n");
 
   await assert.rejects(
-    validateClientArtifact({
-      ...fixture,
-      expectedVersion: fixture.version,
+    validateClientSourceParity({
+      artifactDir: fixture.artifactDir,
+      publicDir: fixture.publicDir,
     }),
     (error) => {
       assert.ok(error instanceof ClientArtifactError);
@@ -142,6 +179,15 @@ test("reports every incomplete public copy violation", async (t) => {
       );
       return true;
     },
+  );
+});
+
+test("source parity rejects an absent public source tree", async (t) => {
+  const fixture = await createFixture(t);
+  await fs.rm(fixture.publicDir, { recursive: true });
+  await expectInvalidParity(
+    { artifactDir: fixture.artifactDir, publicDir: fixture.publicDir },
+    /missing public directory/,
   );
 });
 
@@ -216,4 +262,52 @@ test("writer atomically replaces version metadata from package.json", async (t) 
     ),
     [],
   );
+});
+
+test("build verifier aggregates runtime and source parity violations", async (t) => {
+  const fixture = await createFixture(t);
+  const verifierRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), "darkflow-client-verifier-"),
+  );
+  t.after(() => fs.rm(verifierRoot, { recursive: true, force: true }));
+
+  await Promise.all([
+    fs.mkdir(path.join(verifierRoot, "scripts"), { recursive: true }),
+    fs.mkdir(path.join(verifierRoot, "lib"), { recursive: true }),
+    fs.mkdir(path.join(verifierRoot, "dist"), { recursive: true }),
+  ]);
+  await Promise.all([
+    fs.copyFile(
+      path.join(repoRoot, "scripts", "verify-client-artifact.mjs"),
+      path.join(verifierRoot, "scripts", "verify-client-artifact.mjs"),
+    ),
+    fs.copyFile(
+      path.join(repoRoot, "lib", "client-artifact.js"),
+      path.join(verifierRoot, "lib", "client-artifact.js"),
+    ),
+    fs.cp(fixture.publicDir, path.join(verifierRoot, "public"), {
+      recursive: true,
+    }),
+    fs.cp(fixture.artifactDir, path.join(verifierRoot, "dist", "client"), {
+      recursive: true,
+    }),
+    fs.writeFile(
+      path.join(verifierRoot, "package.json"),
+      JSON.stringify({ version: fixture.version }),
+    ),
+  ]);
+  await fs.rm(path.join(verifierRoot, "dist", "client", "index.html"));
+  await fs.writeFile(
+    path.join(verifierRoot, "dist", "client", "assets", "logo.txt"),
+    "changed bytes\n",
+  );
+
+  const result = spawnSync(
+    process.execPath,
+    [path.join(verifierRoot, "scripts", "verify-client-artifact.mjs")],
+    { cwd: verifierRoot, encoding: "utf8" },
+  );
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, /missing required file: index\.html/);
+  assert.match(result.stderr, /copied public file differs: assets\/logo\.txt/);
 });

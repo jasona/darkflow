@@ -29,6 +29,31 @@ test('desktop release scripts explicitly produce unsigned packages', () => {
     /forceCodeSigning/);
 });
 
+test('every Electron package command builds the client through the shared prerequisite', () => {
+  const packageScripts = [
+    'desktop:pack',
+    'desktop:dist',
+    'desktop:dist:mac',
+    'desktop:dist:win',
+    'desktop:dist:linux',
+    'desktop:release:mac',
+    'desktop:release:win',
+    'desktop:release:linux',
+    'desktop:steam',
+    'desktop:steam:mac',
+    'desktop:steam:win',
+    'desktop:steam:linux',
+  ];
+
+  assert.equal(packageMetadata.scripts['desktop:prepare-client'], 'npm run build');
+  for (const script of packageScripts) {
+    assert.match(packageMetadata.scripts[script], /^npm run desktop:prepare-client && electron-builder\b/, script);
+  }
+  assert.equal(packageMetadata.devDependencies['@electron/asar'], '3.4.1');
+  assert.ok(packageMetadata.build.files.includes('dist/client/**/*'));
+  assert.ok(!packageMetadata.build.files.includes('public/**/*'));
+});
+
 test('release validator requires installers, blockmaps, metadata, and checksums', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'darkflow-release-'));
   const version = '9.8.7';

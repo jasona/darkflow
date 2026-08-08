@@ -32,25 +32,21 @@ async function center(locator: Locator): Promise<{ x: number; y: number }> {
   return { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
 }
 
-async function dispatchTouch(
+/** Drive Dockview's pointer drag source with touch-typed CDP mouse events. */
+async function dispatchPointerTouch(
   session: CDPSession,
-  type: "touchStart" | "touchMove" | "touchEnd",
-  point?: { x: number; y: number },
+  type: "mousePressed" | "mouseMoved" | "mouseReleased",
+  point: { x: number; y: number },
+  pressed: boolean,
 ): Promise<void> {
-  await session.send("Input.dispatchTouchEvent", {
+  await session.send("Input.dispatchMouseEvent", {
     type,
-    touchPoints: point
-      ? [
-          {
-            x: point.x,
-            y: point.y,
-            id: 1,
-            radiusX: 4,
-            radiusY: 4,
-            force: 1,
-          },
-        ]
-      : [],
+    x: point.x,
+    y: point.y,
+    button: "left",
+    buttons: pressed ? 1 : 0,
+    pointerType: "touch",
+    clickCount: type === "mousePressed" ? 1 : 0,
   });
 }
 
@@ -61,19 +57,25 @@ async function touchDrag(
   holdMilliseconds: number,
 ): Promise<void> {
   const start = await center(source);
+  const end = { x: target.x, y: target.y };
   const session = await page.context().newCDPSession(page);
   try {
-    await dispatchTouch(session, "touchStart", start);
+    await dispatchPointerTouch(session, "mousePressed", start, true);
     await page.waitForTimeout(holdMilliseconds);
     for (let step = 1; step <= 6; step += 1) {
       const progress = step / 6;
-      await dispatchTouch(session, "touchMove", {
-        x: start.x + (target.x - start.x) * progress,
-        y: start.y + (target.y - start.y) * progress,
-      });
+      await dispatchPointerTouch(
+        session,
+        "mouseMoved",
+        {
+          x: start.x + (end.x - start.x) * progress,
+          y: start.y + (end.y - start.y) * progress,
+        },
+        true,
+      );
       await page.waitForTimeout(25);
     }
-    await dispatchTouch(session, "touchEnd");
+    await dispatchPointerTouch(session, "mouseReleased", end, false);
   } finally {
     await session.detach();
   }
@@ -97,6 +99,14 @@ test("touch gestures distinguish taps, swipes, docking, and floating movement", 
   const workspace = page.getByTestId("workspace-host");
   await expect(workspace).toBeVisible();
   await workspace.scrollIntoViewIfNeeded();
+  await expect
+    .poll(() =>
+      workspace.evaluate((host) => {
+        const bounds = host.getBoundingClientRect();
+        return bounds.width > 0 && bounds.height > 0;
+      }),
+    )
+    .toBe(true);
   await page.waitForFunction(() => typeof window.__darkflowWorkspace?.upsert === "function");
 
   const first: PanelSpec = {
@@ -168,8 +178,11 @@ test("touch gestures distinguish taps, swipes, docking, and floating movement", 
   expect(beforeFloatingMove.floating).toBe(true);
   const floatingHandle = floatingDragHandle(page, floating.id);
   await expect(floatingHandle).toBeVisible();
-  const floatingStart = await center(floatingHandle);
-  await touchDrag(page, floatingHandle, { x: floatingStart.x + 55, y: floatingStart.y + 45 }, 300);
+  const floatingMoveTarget = {
+    x: beforeFloatingMove.bounds.left + beforeFloatingMove.bounds.width - 48,
+    y: beforeFloatingMove.bounds.top + beforeFloatingMove.bounds.height - 48,
+  };
+  await touchDrag(page, floatingHandle, floatingMoveTarget, 300);
   await expect
     .poll(async () => {
       const moved = await observePanel(page, floating.id);

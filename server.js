@@ -358,7 +358,6 @@ async function initializeApp(mode) {
     try {
       await validateClientArtifact({
         artifactDir: BUILT_CLIENT_ROOT,
-        publicDir: PUBLIC_CLIENT_ROOT,
         expectedVersion: PACKAGE_VERSION,
       });
     } catch (error) {

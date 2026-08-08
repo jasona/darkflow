@@ -4,7 +4,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import clientArtifact from "../lib/client-artifact.js";
 
-const { ClientArtifactError, validateClientArtifact } = clientArtifact;
+const {
+  ClientArtifactError,
+  validateClientArtifact,
+  validateClientSourceParity,
+} = clientArtifact;
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -15,11 +19,36 @@ const packageMetadata = JSON.parse(
 const artifactDir = path.join(repoRoot, "dist", "client");
 
 try {
-  const metadata = await validateClientArtifact({
-    artifactDir,
-    publicDir: path.join(repoRoot, "public"),
-    expectedVersion: packageMetadata.version,
-  });
+  let metadata;
+  const violations = [];
+  const validations = [
+    async () => {
+      metadata = await validateClientArtifact({
+        artifactDir,
+        expectedVersion: packageMetadata.version,
+      });
+    },
+    async () => {
+      await validateClientSourceParity({
+        artifactDir,
+        publicDir: path.join(repoRoot, "public"),
+      });
+    },
+  ];
+
+  for (const validate of validations) {
+    try {
+      await validate();
+    } catch (error) {
+      if (!(error instanceof ClientArtifactError)) throw error;
+      violations.push(...error.violations);
+    }
+  }
+
+  if (violations.length > 0) {
+    throw new ClientArtifactError(violations);
+  }
+
   console.log(
     `verify-client-artifact: validated ${path.relative(repoRoot, artifactDir)} (${metadata.version})`,
   );

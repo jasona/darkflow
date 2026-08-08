@@ -2,7 +2,7 @@
 
 Darkflow is the official web and desktop client for Darkwind. It is a fast, terminal-first WebSocket client with Darkwind-specific panels, mapping, media, builder tools, settings, and GMCP integrations layered around the live MUD session.
 
-The app is intentionally lightweight: Express serves static files, the browser connects directly to the MUD over WebSocket, and the legacy frontend is native ES modules with no build required for the default web or Electron experience. During the Phase 0 migration, an opt-in Vite build proves the future production artifact without changing those defaults. Electron packages the legacy server and frontend for Windows, macOS, Linux, and Steam without creating a separate client fork.
+The app is intentionally lightweight: Express serves static files, the browser connects directly to the MUD over WebSocket, and the legacy frontend is native ES modules with no build required for the default web or unpackaged Electron development experience. During the Phase 0 migration, Vite produces the validated artifact used by packaged Electron and Docker without changing those development defaults.
 
 ## What Darkflow Supports
 
@@ -73,8 +73,9 @@ npm run start:built
 
 This serves only the validated files under `dist/client/`. Missing or invalid
 built output is an intentional startup failure; run `npm run build` to
-regenerate it. `npm start` still serves `public/` directly and does not require
-a build, and Electron remains on that legacy path.
+regenerate it. `npm start` and unpackaged `npm run desktop` still serve
+`public/` directly and do not require a build. Electron smoke and package
+commands build and use `dist/client/`.
 
 ## Configuration
 
@@ -124,6 +125,17 @@ and an `MCP_AUTH_TOKEN` bearer token.
 ```bash
 docker build -t darkflow-client .
 docker run -p 3000:3000 darkflow-client
+```
+
+The multi-stage image builds and validates `dist/client/` inside the builder.
+Its production-only runtime contains the server, runtime libraries, and built
+client, but not `public/`, client source, tests, or Vite.
+
+Deterministic connection coverage is available without contacting Darkwind:
+
+```bash
+npm run test:transports  # built Chromium against local ws/wss/telnet/telnets fixtures
+npm run test:mcp         # clean install and test of the separately owned MCP harness
 ```
 
 ## Project Layout
@@ -209,7 +221,8 @@ The generated source sheet is stored as `Gemini_Generated_Image_itemzcitemzcitem
 
 ## Development Notes
 
-- No frontend build step is required for `npm start` or Electron; edit legacy files in `public/` directly.
+- No frontend build step is required for `npm start` or unpackaged `npm run desktop`; edit legacy files in `public/` directly.
+- Packaged Electron and Docker use a freshly built, validated `dist/client/` artifact and do not carry a `public/` fallback.
 - Run `npm run build` before `npm run start:built`; the build rewrites and validates `dist/client/version.json` from `package.json`.
 - Keep `/api/version` aligned with the selected client root: `public/version.json` for legacy/development and generated `dist/client/version.json` for built mode. The client uses it for update detection and GMCP `Core.Hello`.
 - Keep the visible product name as **Darkflow**, but do not rename existing `Darkwind.*` GMCP packages without a coordinated server compatibility plan.
