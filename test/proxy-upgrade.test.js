@@ -39,7 +39,7 @@ test("proxy upgrades share the server without swallowing other paths", async (t)
   });
 
   const fixtureAddress = fixture.address();
-  const address = await startServer({ port: 0, host: "127.0.0.1" });
+  const address = await startServer({ port: 0, host: "127.0.0.1", mode: "dev" });
   const proxy = await openSocket(
     `ws://127.0.0.1:${address.port}/proxy?host=127.0.0.1&port=${fixtureAddress.port}`,
   );

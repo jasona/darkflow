@@ -24,7 +24,7 @@ test('Darkflow server can be embedded on an ephemeral loopback port', async (t) 
     await stopServer();
   });
 
-  const address = await startServer({ port: 0, host: '127.0.0.1' });
+  const address = await startServer({ port: 0, host: '127.0.0.1', mode: 'dev' });
   assert.equal(address.address, '127.0.0.1');
   assert.ok(address.port > 0);
 
