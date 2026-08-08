@@ -324,6 +324,9 @@ legacy records after rollback.
 
 ### Step 5 - Resolve effective configuration and publish atomic revisions
 
+Detailed implementation plan:
+[`multi-connection-ui-phase-1-step-5-implementation-plan.md`](multi-connection-ui-phase-1-step-5-implementation-plan.md).
+
 **Files:** `client/configuration/identity.ts`, `resolve.ts`, `service.ts`,
 `snapshot.ts`, `test/effective-configuration.test.mjs` (new)
 

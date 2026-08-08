@@ -8,6 +8,7 @@ const scriptFiles = [
   "client/app/**/*.ts",
   "client/model/**/*.ts",
   "client/storage/**/*.ts",
+  "client/configuration/**/*.ts",
   "client/phase0/**/*.{js,ts}",
   "e2e/**/*.ts",
   "*.config.mjs",
