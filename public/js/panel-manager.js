@@ -3634,6 +3634,21 @@ export const panelManager = {
       updateCyberwareModalImage(data.id, data.url);
     });
 
+    gmcp.on('Darkwind.Professions.List', (data) => {
+      this.gmcpData.professions = data && Array.isArray(data.professions)
+        ? data.professions : [];
+      this._renderPanel('professions');
+    });
+
+    gmcp.on('Darkwind.Professions.Update', (data) => {
+      if (!data || !data.name || !Array.isArray(this.gmcpData.professions)) return;
+      const idx = this.gmcpData.professions.findIndex(p => p.name === data.name);
+      const entry = { name: data.name, points: data.value, max: data.valueMax };
+      if (idx >= 0) this.gmcpData.professions[idx] = entry;
+      else this.gmcpData.professions.push(entry);
+      this._renderPanel('professions');
+    });
+
     gmcp.on('Darkwind.Char.Avatar', (data) => {
       if (!data || !data.url) return;
 

@@ -175,6 +175,7 @@ export const gmcp = {
       'Darkwind.Lag 1',
       'Darkwind.Fishing 1',
       'Darkwind.Cyberware 1',
+      'Darkwind.Professions 1',
       'Darkwind.StreetSamurai 1',
       'Darkwind.Room.Playlist 1'
     ]);

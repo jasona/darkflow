@@ -34,6 +34,8 @@ export const PANEL_DEFS = {
   achievements: { title: 'Achievements', defaultDock: 'right', defaultOrder: 4 },
   cyberware: { title: 'Cyberware', defaultDock: 'right', defaultOrder: 5,
                defaultVisible: false },
+  professions: { title: 'Professions', defaultDock: 'right', defaultOrder: 6,
+               defaultVisible: false },
   connection: { title: 'Connection', defaultDock: 'float', defaultOrder: 2,
                defaultFloatW: 340, defaultFloatH: 330,
                defaultSnapLeft: true, defaultSnapBottom: true,

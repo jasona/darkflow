@@ -552,7 +552,7 @@ export function updateCyberwareModalImage(id, url) {
   if (imgNote) imgNote.textContent = '';
 }
 
-function vitalBarClass(value) {
+export function vitalBarClass(value) {
   const suffix = String(value || 'bar').toLowerCase()
     .replace(/[^a-z0-9_-]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'bar';
@@ -587,6 +587,12 @@ export function renderVitalBar(bodyEl, label, cur, max, opts = {}) {
   fill.style.width = pct + '%';
   if (opts.colorMode === 'heat') {
     fill.style.backgroundColor = heatVitalBarColor(pct);
+  }
+  else if (opts.colorMode === 'flat') {
+    // Fixed color regardless of percentage -- for meters where "low" isn't
+    // a warning state (e.g. profession progress), so partial progress
+    // doesn't read as red/discouraging.
+    fill.style.backgroundColor = opts.color || '#3fb950';
   }
   else fill.style.backgroundColor = opts.colorMode === 'inverse'
     ? inverseVitalBarColor(pct)
@@ -1674,6 +1680,24 @@ export const panelRenderers = {
         }
       });
     }
+  },
+
+  professions(bodyEl, data) {
+    const list = Array.isArray(data) ? data : [];
+    if (!list.length) {
+      bodyEl.innerHTML = '<div class="placeholder">Waiting for data...</div>';
+      return;
+    }
+    list.forEach((prof) => {
+      if (!prof || !prof.name) return;
+      const points = Number(prof.points) || 0;
+      const max = Number(prof.max) || 1000;
+      const id = 'prof-' + String(prof.name).toLowerCase();
+      renderVitalBar(bodyEl, String(prof.name), points, max,
+        { id, colorMode: 'flat' });
+      const row = bodyEl.querySelector('.' + vitalBarClass(id));
+      if (row) bodyEl.appendChild(row); // enforce list order each render
+    });
   },
 
   enemy(bodyEl, data) {
