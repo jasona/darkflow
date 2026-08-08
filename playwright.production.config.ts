@@ -26,7 +26,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "node server.js --built-client",
+    command: "node server.js",
     url: "http://127.0.0.1:3124/ping",
     env: { PORT: "3124", MCP_ENABLED: "0", MUD_HOST: "" },
     reuseExistingServer: false,

@@ -137,6 +137,7 @@ the default until every Phase 0 gate passes.
 - Add the client build to every desktop release job and normal CI.
 - Record the exact approved dependency cohort, Dockview approval/rejection,
   browser-support change, commands, evidence, and known limitations.
+- See [Phase 0 Step 9 Decision](multi-connection-ui-phase-0-step-9-decision.md).
 
 ## Interfaces and Commands
 
@@ -168,7 +169,8 @@ the default until every Phase 0 gate passes.
 - Phase 0 introduces the build and validation foundation; it does not convert
   the existing frontend modules or replace the visible application shell.
 - Green, independently reviewable PRs are required.
-- The legacy client remains the default until all gates pass.
+- The legacy client remains the default until all gates pass; Step 9 makes
+  built-client serving the default for production paths.
 - Vite 8's current browser baseline is the new supported web baseline.
 - Dependency versions are pinned exactly; a failed candidate cohort blocks the
   gate rather than triggering an unreviewed downgrade.

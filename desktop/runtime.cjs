@@ -11,9 +11,8 @@ function isSteamDistribution({ argv = process.argv, env = process.env, distribut
   });
 }
 
-function selectDesktopServeMode({ isPackaged = false, argv = process.argv } = {}) {
-  if (isPackaged || argv.includes('--built-client')) return 'built';
-  return 'legacy';
+function selectDesktopServeMode() {
+  return 'built';
 }
 
 function isAllowedAppUrl(candidate, appOrigin) {

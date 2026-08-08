@@ -126,7 +126,6 @@ const { IAC, DO, TELOPT_GMCP } = constants;
 const MAX_PENDING_GMCP_BYTES = 64 * 1024;
 
 const devMode = process.argv.includes('--dev');
-const builtClientMode = process.argv.includes('--built-client');
 if (devMode && !process.env.DARKFLOW_LOG_DIR) {
   process.env.DARKFLOW_LOG_DIR = path.join(os.tmpdir(), 'darkflow-dev-log');
 }
@@ -349,11 +348,11 @@ wss.on('connection', (ws, req) => {
  * Mounts the optional MCP relay before the selected frontend middleware.
  */
 async function initializeApp(mode) {
-  if (!['legacy', 'dev', 'built'].includes(mode)) {
+  if (!['dev', 'built'].includes(mode)) {
     throw new Error(`Unknown serve mode: ${mode}`);
   }
 
-  const clientRoot = mode === 'built' ? BUILT_CLIENT_ROOT : PUBLIC_CLIENT_ROOT;
+  const clientRoot = mode === 'dev' ? PUBLIC_CLIENT_ROOT : BUILT_CLIENT_ROOT;
   if (mode === 'built') {
     try {
       await validateClientArtifact({
@@ -446,7 +445,7 @@ async function resetClientState() {
 /**
  * Starts the shared HTTP server after initializing its selected serve mode.
  */
-async function startServer({ port = PORT, host = process.env.HOST, mode = 'legacy' } = {}) {
+async function startServer({ port = PORT, host = process.env.HOST, mode = 'built' } = {}) {
   if (server.listening) return Promise.resolve(server.address());
   const initialization = initPromise ??= initializeApp(mode);
   try {
@@ -495,10 +494,7 @@ async function stopServer() {
 }
 
 if (require.main === module) {
-  if (devMode && builtClientMode) {
-    console.error('Darkflow failed to start: --dev and --built-client cannot be combined');
-    process.exitCode = 1;
-  } else startServer({ mode: devMode ? 'dev' : builtClientMode ? 'built' : 'legacy' }).then((address) => {
+  startServer({ mode: devMode ? 'dev' : 'built' }).then((address) => {
     const port = address && typeof address === 'object' ? address.port : PORT;
     console.log(`Darkflow listening on port ${port}`);
     console.log(`Proxy endpoint: ws[s]://<host>:${port}/proxy?host=X&port=Y&tls=0|1`);

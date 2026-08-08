@@ -62,37 +62,35 @@ npm run desktop
 See [Darkwind Desktop Client](docs/desktop.md) for native packages, GitHub
 auto-updates, signing, versioned releases, and Steam depot builds.
 
-### Opt-in built client
-
-Phase 0 also provides a production-artifact path for verification:
+### Production start
 
 ```bash
 npm run build
-npm run start:built
+npm start
 ```
 
-This serves only the validated files under `dist/client/`. Missing or invalid
+`npm start` serves the validated files under `dist/client/`. Missing or invalid
 built output is an intentional startup failure; run `npm run build` to
-regenerate it. `npm start` and unpackaged `npm run desktop` still serve
-`public/` directly and do not require a build. Electron smoke and package
-commands build and use `dist/client/`.
+regenerate it. Use `npm run dev` for development against source files in
+`public/` with Vite HMR at `/phase0/`. Electron desktop commands build and
+serve `dist/client/` as well.
 
 ## Configuration
 
 The Express server serves static files and exposes `/config.json` and `/api/version`.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `3000` | HTTP port for Darkflow |
-| `HOST` | all interfaces | Optional HTTP bind address, such as `127.0.0.1` |
-| `MUD_HOST` | empty | Default host shown in the toolbar; if set, the client auto-connects |
-| `MUD_PORT` | `4242` | Default MUD port |
-| `MUD_WSS` | enabled | Set to `0` to default to plain `ws://` |
-| `GAME_NAME` | empty | Optional game name appended to the browser title |
-| `MCP_ENABLED` | `1` | Set to `0` to not mount the MCP relay at `/mcp` |
-| `MCP_PATH` | `/mcp` | Route the MCP relay is served on (use a long random path in production) |
-| `MCP_AUTH_TOKEN` | empty | If set, MCP clients must send `Authorization: Bearer <token>` |
-| `DARKFLOW_LOG_DIR` | `./log` | Proxy log directory; Electron sets this to per-user app data |
+| Variable           | Default        | Description                                                             |
+| ------------------ | -------------- | ----------------------------------------------------------------------- |
+| `PORT`             | `3000`         | HTTP port for Darkflow                                                  |
+| `HOST`             | all interfaces | Optional HTTP bind address, such as `127.0.0.1`                         |
+| `MUD_HOST`         | empty          | Default host shown in the toolbar; if set, the client auto-connects     |
+| `MUD_PORT`         | `4242`         | Default MUD port                                                        |
+| `MUD_WSS`          | enabled        | Set to `0` to default to plain `ws://`                                  |
+| `GAME_NAME`        | empty          | Optional game name appended to the browser title                        |
+| `MCP_ENABLED`      | `1`            | Set to `0` to not mount the MCP relay at `/mcp`                         |
+| `MCP_PATH`         | `/mcp`         | Route the MCP relay is served on (use a long random path in production) |
+| `MCP_AUTH_TOKEN`   | empty          | If set, MCP clients must send `Authorization: Bearer <token>`           |
+| `DARKFLOW_LOG_DIR` | `./log`        | Proxy log directory; Electron sets this to per-user app data            |
 
 The runtime client version is returned by `/api/version` with
 `Cache-Control: no-store`. Legacy and development serving read
@@ -221,10 +219,15 @@ The generated source sheet is stored as `Gemini_Generated_Image_itemzcitemzcitem
 
 ## Development Notes
 
-- No frontend build step is required for `npm start` or unpackaged `npm run desktop`; edit legacy files in `public/` directly.
-- Packaged Electron and Docker use a freshly built, validated `dist/client/` artifact and do not carry a `public/` fallback.
-- Run `npm run build` before `npm run start:built`; the build rewrites and validates `dist/client/version.json` from `package.json`.
-- Keep `/api/version` aligned with the selected client root: `public/version.json` for legacy/development and generated `dist/client/version.json` for built mode. The client uses it for update detection and GMCP `Core.Hello`.
+- No frontend build step is required for `npm run dev`; edit source files in
+  `public/` directly and use Vite HMR at `/phase0/`.
+- `npm start`, packaged Electron, and Docker require a freshly built,
+  validated `dist/client/` artifact and do not carry a `public/` fallback.
+- Run `npm run build` before `npm start`; the build rewrites and validates
+  `dist/client/version.json` from `package.json`.
+- Keep `/api/version` aligned with the selected client root: `public/version.json`
+  for development and generated `dist/client/version.json` for built mode. The
+  client uses it for update detection and GMCP `Core.Hello`.
 - Keep the visible product name as **Darkflow**, but do not rename existing `Darkwind.*` GMCP packages without a coordinated server compatibility plan.
 - The settings export format remains `darkwind-client-settings-export` for backward compatibility, even though download filenames now use `darkflow-settings-...json`.
 - Keep browser game audio behind `sound-manager.js` and `howler-audio-engine.js`; the server exposes the pinned Howler core runtime at `/vendor/howler.core.min.js` for both web and Electron clients.
@@ -233,7 +236,8 @@ The generated source sheet is stored as `Gemini_Generated_Image_itemzcitemzcitem
 
 ## Browser Support
 
-Chrome 90+, Firefox 90+, Safari 15+, Edge 90+ with native WebSocket support.
+Chrome 111+, Edge 111+, Firefox 114+, Safari 16.4+ with native WebSocket
+support (Vite 8 `baseline-widely-available` default).
 
 Desktop packages target current supported releases of Windows, macOS, and
 mainstream x64 Linux distributions.
@@ -245,10 +249,10 @@ mainstream x64 Linux distributions.
 This package includes or depends on third-party components under their own
 licenses:
 
-| Dependency | License |
-| --- | --- |
-| [Electron](https://github.com/electron/electron) | MIT |
-| [electron-updater](https://github.com/electron-userland/electron-builder) | MIT |
-| [express](https://github.com/expressjs/express) | MIT |
-| [howler.js](https://howlerjs.com/) | MIT |
-| [ws](https://github.com/websockets/ws) | MIT |
+| Dependency                                                                | License |
+| ------------------------------------------------------------------------- | ------- |
+| [Electron](https://github.com/electron/electron)                          | MIT     |
+| [electron-updater](https://github.com/electron-userland/electron-builder) | MIT     |
+| [express](https://github.com/expressjs/express)                           | MIT     |
+| [howler.js](https://howlerjs.com/)                                        | MIT     |
+| [ws](https://github.com/websockets/ws)                                    | MIT     |

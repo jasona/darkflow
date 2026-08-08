@@ -45,6 +45,7 @@ async function dispatchPointerTouch(
     y: point.y,
     button: "left",
     buttons: pressed ? 1 : 0,
+    // @ts-expect-error CDP accepts touch pointerType; Playwright typings omit it.
     pointerType: "touch",
     clickCount: type === "mousePressed" ? 1 : 0,
   });

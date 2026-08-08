@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import net from "node:net";
@@ -15,24 +15,13 @@ process.env.DARKFLOW_DESKTOP = "0";
 const runFile = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const artifactDir = path.join(root, "dist", "client");
-const hiddenArtifactDir = path.join(
-  root,
-  "dist",
-  `client.production-server-check-${randomUUID()}`,
-);
-const packageMetadata = JSON.parse(
-  await fs.readFile(path.join(root, "package.json"), "utf8"),
-);
-const { app, getServeInfo, server, startServer, stopServer } =
-  await import("../server.js");
+const hiddenArtifactDir = path.join(root, "dist", `client.production-server-check-${randomUUID()}`);
+const packageMetadata = JSON.parse(await fs.readFile(path.join(root, "package.json"), "utf8"));
+const { app, getServeInfo, server, startServer, stopServer } = await import("../server.js");
 
 async function assertResponse(origin, requestPath, expected) {
   const response = await fetch(`${origin}${requestPath}`);
-  assert.equal(
-    response.status,
-    expected.status,
-    `${requestPath} returned ${response.status}`,
-  );
+  assert.equal(response.status, expected.status, `${requestPath} returned ${response.status}`);
   if (expected.contentType) {
     assert.match(
       response.headers.get("content-type") || "",
@@ -50,10 +39,7 @@ async function assertProxyRejections(origin, port) {
   assert.equal(invalidReason.toString(), "invalid host/port");
 
   const unmatched = new WebSocket(`${origin.replace("http", "ws")}/nope`);
-  await assert.rejects(
-    once(unmatched, "open"),
-    /Unexpected server response: 400/,
-  );
+  await assert.rejects(once(unmatched, "open"), /Unexpected server response: 400/);
 
   process.env.DARKFLOW_DESKTOP = "1";
   process.env.DARKFLOW_DESKTOP_TOKEN = "built-server-test-token";
@@ -67,18 +53,16 @@ async function assertProxyRejections(origin, port) {
     });
     assert.equal(allowed.status, 200);
 
-    const invalidOrigin = new WebSocket(
-      `${origin.replace("http", "ws")}/proxy`,
-      { origin: "https://untrusted.example" },
-    );
+    const invalidOrigin = new WebSocket(`${origin.replace("http", "ws")}/proxy`, {
+      origin: "https://untrusted.example",
+    });
     const [originCode, originReason] = await once(invalidOrigin, "close");
     assert.equal(originCode, 1008);
     assert.equal(originReason.toString(), "invalid origin");
 
-    const missingSession = new WebSocket(
-      `${origin.replace("http", "ws")}/proxy`,
-      { origin: `http://127.0.0.1:${port}` },
-    );
+    const missingSession = new WebSocket(`${origin.replace("http", "ws")}/proxy`, {
+      origin: `http://127.0.0.1:${port}`,
+    });
     const [sessionCode, sessionReason] = await once(missingSession, "close");
     assert.equal(sessionCode, 1008);
     assert.equal(sessionReason.toString(), "invalid session");
@@ -88,41 +72,88 @@ async function assertProxyRejections(origin, port) {
   }
 }
 
+async function waitForPing(origin, attempts = 30) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const response = await fetch(`${origin}/ping`);
+      if (response.status === 204) return;
+    } catch (error) {
+      if (attempt === attempts - 1) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`server did not respond at ${origin}/ping`);
+}
+
+async function assertUnflaggedCliUsesBuiltMode() {
+  const listener = net.createServer();
+  listener.listen(0, "127.0.0.1");
+  await once(listener, "listening");
+  const port = listener.address().port;
+  await new Promise((resolve, reject) => {
+    listener.close((error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+
+  const child = spawn(process.execPath, ["server.js"], {
+    cwd: root,
+    env: {
+      ...process.env,
+      PORT: String(port),
+      HOST: "127.0.0.1",
+      MCP_ENABLED: "0",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  const origin = `http://127.0.0.1:${port}`;
+  try {
+    await waitForPing(origin);
+    const expectedRootHtml = await fs.readFile(path.join(artifactDir, "index.html"), "utf8");
+    const rootResponse = await assertResponse(origin, "/", {
+      status: 200,
+      contentType: /text\/html/,
+    });
+    assert.equal(await rootResponse.text(), expectedRootHtml);
+    await assertResponse(origin, "/phase0/main.ts", { status: 404 });
+    await assertResponse(origin, "/@vite/client", { status: 404 });
+    const versionResponse = await assertResponse(origin, "/api/version", {
+      status: 200,
+      contentType: /json/,
+    });
+    assert.deepEqual(await versionResponse.json(), {
+      version: packageMetadata.version,
+    });
+  } finally {
+    child.kill("SIGTERM");
+    await once(child, "exit").catch(() => {});
+  }
+}
+
 async function assertSourceFreeBuiltRuntime() {
-  const runtimeRoot = await fs.mkdtemp(
-    path.join(path.dirname(root), "darkflow-built-runtime-"),
-  );
+  const runtimeRoot = await fs.mkdtemp(path.join(path.dirname(root), "darkflow-built-runtime-"));
   let runtimeServer;
 
   try {
     await fs.mkdir(path.join(runtimeRoot, "dist"), { recursive: true });
     await Promise.all([
-      fs.copyFile(
-        path.join(root, "server.js"),
-        path.join(runtimeRoot, "server.js"),
-      ),
-      fs.copyFile(
-        path.join(root, "package.json"),
-        path.join(runtimeRoot, "package.json"),
-      ),
+      fs.copyFile(path.join(root, "server.js"), path.join(runtimeRoot, "server.js")),
+      fs.copyFile(path.join(root, "package.json"), path.join(runtimeRoot, "package.json")),
       fs.cp(path.join(root, "lib"), path.join(runtimeRoot, "lib"), {
         recursive: true,
       }),
       fs.cp(artifactDir, path.join(runtimeRoot, "dist", "client"), {
         recursive: true,
       }),
-      fs.symlink(
-        path.join(root, "node_modules"),
-        path.join(runtimeRoot, "node_modules"),
-      ),
+      fs.symlink(path.join(root, "node_modules"), path.join(runtimeRoot, "node_modules")),
     ]);
     await assert.rejects(fs.stat(path.join(runtimeRoot, "public")), {
       code: "ENOENT",
     });
 
-    runtimeServer = (
-      await import(pathToFileURL(path.join(runtimeRoot, "server.js")).href)
-    ).default;
+    runtimeServer = (await import(pathToFileURL(path.join(runtimeRoot, "server.js")).href)).default;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const address = await runtimeServer.startServer({
         port: 0,
@@ -133,10 +164,7 @@ async function assertSourceFreeBuiltRuntime() {
       assert.equal(response.status, 200);
       assert.equal(
         await response.text(),
-        await fs.readFile(
-          path.join(runtimeRoot, "dist", "client", "index.html"),
-          "utf8",
-        ),
+        await fs.readFile(path.join(runtimeRoot, "dist", "client", "index.html"), "utf8"),
       );
       await runtimeServer.stopServer();
     }
@@ -163,7 +191,7 @@ try {
       startServer({
         port: occupiedPort.address().port,
         host: "127.0.0.1",
-        mode: "legacy",
+        mode: "built",
       }),
       (error) => error.code === "EADDRINUSE",
     );
@@ -184,10 +212,7 @@ try {
     mode: "built",
   });
   const origin = `http://127.0.0.1:${address.port}`;
-  const expectedRootHtml = await fs.readFile(
-    path.join(artifactDir, "index.html"),
-    "utf8",
-  );
+  const expectedRootHtml = await fs.readFile(path.join(artifactDir, "index.html"), "utf8");
   const rootResponse = await assertResponse(origin, "/", {
     status: 200,
     contentType: /text\/html/,
@@ -267,10 +292,7 @@ try {
   const artifactIndex = await fs.readFile(path.join(artifactDir, "index.html"));
   await fs.rename(artifactDir, hiddenArtifactDir);
   artifactHidden = true;
-  await assert.rejects(
-    startServer({ port: 0, host: "127.0.0.1", mode: "built" }),
-    /npm run build/,
-  );
+  await assert.rejects(startServer({ port: 0, host: "127.0.0.1", mode: "built" }), /npm run build/);
   assert.equal(server.listening, false);
   assert.deepEqual(getServeInfo(), { mode: null, mcp: null });
 
@@ -278,10 +300,7 @@ try {
   artifactHidden = false;
   const restoredStat = await fs.stat(artifactDir);
   assert.equal(restoredStat.ino, artifactStat.ino);
-  assert.deepEqual(
-    await fs.readFile(path.join(artifactDir, "index.html")),
-    artifactIndex,
-  );
+  assert.deepEqual(await fs.readFile(path.join(artifactDir, "index.html")), artifactIndex);
 
   const retryAddress = await startServer({
     port: 0,
@@ -329,16 +348,7 @@ try {
   });
   await stopServer();
 
-  await assert.rejects(
-    runFile(process.execPath, ["server.js", "--dev", "--built-client"], {
-      cwd: root,
-    }),
-    (error) => {
-      assert.equal(error.code, 1);
-      assert.match(error.stderr, /--dev and --built-client cannot be combined/);
-      return true;
-    },
-  );
+  await assertUnflaggedCliUsesBuiltMode();
 
   console.log("Built production server contract verified");
 } finally {

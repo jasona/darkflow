@@ -80,7 +80,8 @@ this client:
 - GMCP is delivered via binary WebSocket frames, not telnet subnegotiation
 - Must handle partial ANSI sequences spanning message boundaries
 - Batch DOM updates via requestAnimationFrame to handle rapid server messages
-- Target browsers: Chrome 90+, Firefox 90+, Safari 15+, Edge 90+
+- Target browsers: Chrome 111+, Edge 111+, Firefox 114+, Safari 16.4+ (Vite 8
+  `baseline-widely-available` default)
 - Tile assets served from `public/assets/tiles/` (22 terrain JPGs + 1 player
   PNG)
 - `@ttsc/unplugin` hashes every non-ignored file under the repository root for

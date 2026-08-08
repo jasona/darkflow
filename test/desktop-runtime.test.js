@@ -9,15 +9,14 @@ const {
   selectDesktopServeMode,
 } = require('../desktop/runtime.cjs');
 
-test('desktop serve mode uses built assets only for packaged or explicit built launches', () => {
+test('desktop serve mode always uses built assets', () => {
   assert.equal(selectDesktopServeMode({ isPackaged: true, argv: [] }), 'built');
-  assert.equal(selectDesktopServeMode({ isPackaged: false, argv: ['electron', '.', '--built-client'] }), 'built');
-  assert.equal(selectDesktopServeMode({ isPackaged: false, argv: ['electron', '.'] }), 'legacy');
+  assert.equal(selectDesktopServeMode({ isPackaged: false, argv: ['electron', '.'] }), 'built');
   assert.equal(selectDesktopServeMode({
     isPackaged: false,
     argv: ['electron', '.'],
     env: { NODE_ENV: 'production' },
-  }), 'legacy');
+  }), 'built');
 });
 
 test('Steam distribution is detected from build metadata, environment, or arguments', () => {
