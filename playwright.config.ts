@@ -12,17 +12,17 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      testIgnore: /workspace-touch\.spec\.ts/,
+      testIgnore: [/workspace-touch\.spec\.ts/, /production-artifact\.spec\.ts/],
       use: devices["Desktop Chrome"],
     },
     {
       name: "firefox",
-      testIgnore: /workspace-touch\.spec\.ts/,
+      testIgnore: [/workspace-touch\.spec\.ts/, /production-artifact\.spec\.ts/],
       use: devices["Desktop Firefox"],
     },
     {
       name: "webkit",
-      testIgnore: /workspace-touch\.spec\.ts/,
+      testIgnore: [/workspace-touch\.spec\.ts/, /production-artifact\.spec\.ts/],
       use: devices["Desktop Safari"],
     },
     {
