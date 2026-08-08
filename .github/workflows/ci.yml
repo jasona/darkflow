@@ -141,5 +141,4 @@ jobs:
         run: |
           test "$(node --version)" = "v22.15.0"
           test "$(npm --version)" = "10.9.2"
-      - run: npm ci --prefix mud-test-mcp
-      - run: npm test --prefix mud-test-mcp
+      - run: npm run test:mcp

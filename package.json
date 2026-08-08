@@ -19,7 +19,7 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node --test",
+    "test": "node --test test/*.test.js test/*.test.mjs",
     "test:server:built": "node integration/production-server-check.mjs",
     "test:mcp": "npm ci --prefix mud-test-mcp && npm test --prefix mud-test-mcp",
     "desktop": "npm run desktop:prepare-client && electron .",
