@@ -3641,7 +3641,8 @@ export const panelManager = {
     });
 
     gmcp.on('Darkwind.Professions.Update', (data) => {
-      if (!data || !data.name || !Array.isArray(this.gmcpData.professions)) return;
+      if (!data || !data.name) return;
+      if (!Array.isArray(this.gmcpData.professions)) this.gmcpData.professions = [];
       const idx = this.gmcpData.professions.findIndex(p => p.name === data.name);
       const entry = { name: data.name, points: data.value, max: data.valueMax };
       if (idx >= 0) this.gmcpData.professions[idx] = entry;
