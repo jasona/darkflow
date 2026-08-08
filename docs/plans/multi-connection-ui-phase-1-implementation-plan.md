@@ -276,6 +276,11 @@ ships, all `public/` assets except the moved HTML retain source parity, and Phas
 
 ### Step 3 - Define scoped identities and domain contracts
 
+Domain model reference: [`../session-model.md`](../session-model.md).
+
+Detailed implementation plan:
+[`multi-connection-ui-phase-1-step-3-implementation-plan.md`](multi-connection-ui-phase-1-step-3-implementation-plan.md).
+
 **Files:** `client/model/ids.ts`, `profiles.ts`, `configuration.ts`,
 `session-contract.ts`, `validators.ts`, `test/session-model.test.mjs` (all new)
 

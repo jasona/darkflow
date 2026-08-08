@@ -17,6 +17,7 @@
   },
   "include": [
     "client/app/**/*.ts",
+    "client/model/**/*.ts",
     "client/phase0/**/*.ts",
     "client/phase0/**/*.d.ts",
     "client/phase0/**/*.svelte"
