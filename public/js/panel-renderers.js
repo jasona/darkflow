@@ -599,6 +599,16 @@ export function renderVitalBar(bodyEl, label, cur, max, opts = {}) {
     : vitalBarColor(pct);
 }
 
+export function renderProfessionRow(bodyEl, prof) {
+  if (!prof || !prof.name) return false;
+  const points = Number(prof.points) || 0;
+  const max = Number(prof.max) || 1000;
+  const id = 'prof-' + String(prof.name).toLowerCase();
+  renderVitalBar(bodyEl, String(prof.name), points, max,
+    { id, colorMode: 'flat' });
+  return true;
+}
+
 function removeVitalBar(bodyEl, label, opts = {}) {
   const row = bodyEl.querySelector('.' + vitalBarClass(opts.id || label));
   if (row) row.remove();
@@ -1689,12 +1699,8 @@ export const panelRenderers = {
       return;
     }
     list.forEach((prof) => {
-      if (!prof || !prof.name) return;
-      const points = Number(prof.points) || 0;
-      const max = Number(prof.max) || 1000;
+      if (!renderProfessionRow(bodyEl, prof)) return;
       const id = 'prof-' + String(prof.name).toLowerCase();
-      renderVitalBar(bodyEl, String(prof.name), points, max,
-        { id, colorMode: 'flat' });
       const row = bodyEl.querySelector('.' + vitalBarClass(id));
       if (row) bodyEl.appendChild(row); // enforce list order each render
     });
