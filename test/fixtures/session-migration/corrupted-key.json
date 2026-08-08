@@ -1,0 +1,44 @@
+{
+  "aliases": "{ this is not valid json",
+  "triggers": {
+    "scopes": {
+      "wss://mud.example.com:4242": {
+        "triggers": [
+          {
+            "id": "trigger-1",
+            "enabled": true,
+            "pattern": "hello",
+            "description": "",
+            "group": "",
+            "isRegex": false,
+            "ignoreCase": false,
+            "gag": false,
+            "steps": [
+              {
+                "type": "send_command",
+                "template": "wave"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "highlights": {
+    "scopes": {}
+  },
+  "functions": {
+    "scopes": {}
+  },
+  "timers": {
+    "scopes": {}
+  },
+  "config": {
+    "host": "mud.example.com",
+    "port": 4242,
+    "wss": true,
+    "gameName": "",
+    "hiddenPanels": []
+  },
+  "urlSearchParams": ""
+}

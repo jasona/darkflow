@@ -301,6 +301,9 @@ one-live-session rule has a typed registry contract for Step 10 to implement.
 
 ### Step 4 - Add versioned persistence and reversible legacy migration
 
+Detailed implementation plan:
+[`multi-connection-ui-phase-1-step-4-implementation-plan.md`](multi-connection-ui-phase-1-step-4-implementation-plan.md).
+
 **Files:** `client/storage/schema.ts`, `validators.ts`, `repository.ts`,
 `legacy-migration.ts`, `legacy-keys.ts`, `config-validator.ts`,
 `test/session-storage.test.mjs`, `test/fixtures/session-migration/**` (new)

@@ -1,0 +1,156 @@
+{
+  "aliases": {
+    "scopes": {
+      "wss://mud.example.com:4242": {
+        "aliases": [
+          {
+            "id": "alias-1",
+            "enabled": true,
+            "trigger": "look",
+            "description": "Look alias",
+            "group": "",
+            "isRegex": false,
+            "ignoreCase": true,
+            "steps": [
+              {
+                "type": "send_command",
+                "template": "look"
+              }
+            ]
+          }
+        ],
+        "variables": {}
+      }
+    }
+  },
+  "triggers": {
+    "scopes": {
+      "wss://mud.example.com:4242": {
+        "triggers": [
+          {
+            "id": "trigger-1",
+            "enabled": true,
+            "pattern": "You gain experience",
+            "description": "XP",
+            "group": "",
+            "isRegex": false,
+            "ignoreCase": true,
+            "gag": false,
+            "steps": [
+              {
+                "type": "show_message",
+                "template": "XP!"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "highlights": {
+    "scopes": {
+      "wss://mud.example.com:4242": {
+        "rules": [
+          {
+            "id": "highlight-1",
+            "enabled": true,
+            "patternSource": "critical",
+            "description": "Crit",
+            "group": "",
+            "ignoreCase": true,
+            "style": {
+              "fg": "yellow",
+              "bg": "black",
+              "bold": true
+            }
+          }
+        ]
+      }
+    }
+  },
+  "functions": {
+    "scopes": {
+      "wss://mud.example.com:4242": {
+        "functions": [
+          {
+            "id": "function-1",
+            "enabled": true,
+            "name": "heal",
+            "description": "Heal",
+            "group": "",
+            "script": "return 1"
+          }
+        ]
+      }
+    }
+  },
+  "timers": {
+    "scopes": {
+      "wss://mud.example.com:4242": {
+        "timers": [
+          {
+            "id": "timer-1",
+            "enabled": true,
+            "name": "tick",
+            "description": "Tick",
+            "group": "",
+            "durationMs": 1000,
+            "recurring": true,
+            "autoStart": false,
+            "steps": [
+              {
+                "type": "send_command",
+                "template": "tick"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "history": [
+    "look",
+    "score"
+  ],
+  "panels": {
+    "version": 1,
+    "activeLayout": "classic",
+    "profiles": {
+      "classic": {
+        "docks": {
+          "left": false,
+          "right": false
+        },
+        "panels": {}
+      }
+    }
+  },
+  "sound": {
+    "enabled": true,
+    "volume": 0.5,
+    "categoryEnabled": {
+      "ambient": true,
+      "combat": false,
+      "alert": true
+    }
+  },
+  "settings": {
+    "theme": "dracula",
+    "keyMappings": [
+      {
+        "id": "key-1",
+        "code": "F1",
+        "label": "F1",
+        "command": "score"
+      }
+    ]
+  },
+  "config": {
+    "host": "mud.example.com",
+    "port": 4242,
+    "wss": true,
+    "gameName": "Example",
+    "hiddenPanels": []
+  },
+  "urlSearchParams": ""
+}
