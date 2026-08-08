@@ -31,9 +31,16 @@ test("vite build config keeps the Phase 0 artifact contract", async () => {
 
   const input =
     config.build.rolldownOptions?.input ?? config.build.rollupOptions?.input;
-  const expectedEntry = path.join(repoRoot, "client", "phase0", "index.html");
+  const expectedRootEntry = path.join(repoRoot, "client", "index.html");
+  const expectedPhase0Entry = path.join(
+    repoRoot,
+    "client",
+    "phase0",
+    "index.html",
+  );
   assert.equal(typeof input, "object");
-  assert.equal(input.phase0, expectedEntry);
+  assert.equal(input.root, expectedRootEntry);
+  assert.equal(input.phase0, expectedPhase0Entry);
 
   const plugins = config.plugins;
   const ttscIndex = plugins.findIndex(

@@ -13,6 +13,7 @@ export default defineConfig({
     emptyOutDir: true,
     rolldownOptions: {
       input: {
+        root: fileURLToPath(new URL("./client/index.html", import.meta.url)),
         phase0: fileURLToPath(new URL("./client/phase0/index.html", import.meta.url)),
       },
     },

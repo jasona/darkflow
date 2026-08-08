@@ -14,6 +14,13 @@ const packageMetadata = require("../package.json");
 const repoRoot = path.resolve(__dirname, "..");
 const writerPath = path.join(repoRoot, "scripts", "write-client-version.mjs");
 
+const ROOT_BUNDLE = "assets/root-AbCd1234.js";
+const ROOT_BUNDLE_CONTENTS = [
+  'window.__darkflowPhase1Bootstrap = { phase: "legacy-loaded" };',
+  'import("/js/app.js");',
+  "export {};",
+].join("\n");
+
 async function createFixture(t, version = "1.2.3") {
   const root = await fs.mkdtemp(
     path.join(os.tmpdir(), "darkflow-client-artifact-"),
@@ -27,16 +34,19 @@ async function createFixture(t, version = "1.2.3") {
   await fs.mkdir(path.join(artifactDir, "phase0"), { recursive: true });
 
   const publicFiles = {
-    "index.html": "legacy entry\n",
     "assets/logo.txt": "logo bytes\n",
   };
   await Promise.all(
-    Object.entries(publicFiles).flatMap(([relativePath, contents]) => [
+    Object.entries(publicFiles).map(([relativePath, contents]) =>
       fs.writeFile(path.join(publicDir, relativePath), contents),
-      fs.writeFile(path.join(artifactDir, relativePath), contents),
-    ]),
+    ),
   );
   await Promise.all([
+    fs.writeFile(path.join(artifactDir, "assets", "logo.txt"), "logo bytes\n"),
+    fs.writeFile(
+      path.join(artifactDir, "index.html"),
+      `<script type="module" src="/${ROOT_BUNDLE}"></script>\n`,
+    ),
     fs.writeFile(
       path.join(artifactDir, "version.json"),
       JSON.stringify({ version }),
@@ -49,9 +59,13 @@ async function createFixture(t, version = "1.2.3") {
       path.join(artifactDir, "assets", "phase0-AbCd1234.js"),
       "export const ready = true;\n",
     ),
+    fs.writeFile(
+      path.join(artifactDir, ROOT_BUNDLE),
+      `${ROOT_BUNDLE_CONTENTS}\n`,
+    ),
   ]);
 
-  return { root, artifactDir, publicDir, version };
+  return { root, artifactDir, publicDir, version, rootBundle: ROOT_BUNDLE };
 }
 
 async function expectInvalid(options, pattern) {
@@ -223,6 +237,54 @@ test("reports every missing referenced Phase 0 JavaScript bundle", async (t) => 
       );
       return true;
     },
+  );
+});
+
+test("rejects a direct legacy module tag in the root entry", async (t) => {
+  const fixture = await createFixture(t);
+  await fs.writeFile(
+    path.join(fixture.artifactDir, "index.html"),
+    '<script type="module" src="/js/app.js"></script>\n',
+  );
+
+  await expectInvalid(
+    { ...fixture, expectedVersion: fixture.version },
+    /directly loads \/js\/app\.js/,
+  );
+});
+
+test("rejects a raw TypeScript root entry", async (t) => {
+  const fixture = await createFixture(t);
+  await fs.writeFile(
+    path.join(fixture.artifactDir, "index.html"),
+    '<script type="module" src="/app/bootstrap.ts"></script>\n',
+  );
+
+  await expectInvalid(
+    { ...fixture, expectedVersion: fixture.version },
+    /directly loads a TypeScript entry/,
+  );
+});
+
+test("rejects a missing root bundle reference", async (t) => {
+  const fixture = await createFixture(t);
+  await fs.rm(path.join(fixture.artifactDir, fixture.rootBundle));
+  await expectInvalid(
+    { ...fixture, expectedVersion: fixture.version },
+    /missing referenced JavaScript bundle: assets\/root-AbCd1234\.js/,
+  );
+});
+
+test("rejects a generated root bundle without the legacy runtime handoff", async (t) => {
+  const fixture = await createFixture(t);
+  await fs.writeFile(
+    path.join(fixture.artifactDir, fixture.rootBundle),
+    'window.__darkflowPhase1Bootstrap = { phase: "legacy-loaded" };\n',
+  );
+
+  await expectInvalid(
+    { ...fixture, expectedVersion: fixture.version },
+    /missing legacy runtime handoff/,
   );
 });
 

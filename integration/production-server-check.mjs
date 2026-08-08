@@ -212,12 +212,24 @@ try {
     mode: "built",
   });
   const origin = `http://127.0.0.1:${address.port}`;
-  const expectedRootHtml = await fs.readFile(path.join(artifactDir, "index.html"), "utf8");
   const rootResponse = await assertResponse(origin, "/", {
     status: 200,
     contentType: /text\/html/,
   });
-  assert.equal(await rootResponse.text(), expectedRootHtml);
+  const rootHtml = await rootResponse.text();
+  assert.doesNotMatch(rootHtml, /\/js\/app\.js/);
+  assert.doesNotMatch(rootHtml, /\.ts["']/);
+  const rootBundle = rootHtml.match(/src="(\/assets\/[^"]+\.js)"/)?.[1];
+  assert.ok(rootBundle, "index.html must reference a generated JavaScript bundle");
+  assert.doesNotMatch(rootBundle, /phase0-/);
+  await assertResponse(origin, rootBundle, {
+    status: 200,
+    contentType: /javascript/,
+  });
+  const rootBundleBody = await (await fetch(`${origin}${rootBundle}`)).text();
+  assert.match(rootBundleBody, /__darkflowPhase1Bootstrap/);
+  assert.match(rootBundleBody, /\/js\/app\.js/);
+  await assertResponse(origin, "/app/bootstrap.ts", { status: 404 });
   assert.deepEqual(getServeInfo(), {
     mode: "built",
     mcp: { mounted: false, path: "/mcp", reason: "disabled" },
@@ -319,6 +331,17 @@ try {
     mode: "dev",
   });
   const devOrigin = `http://127.0.0.1:${devAddress.port}`;
+  const devRootResponse = await assertResponse(devOrigin, "/", {
+    status: 200,
+    contentType: /text\/html/,
+  });
+  const devRootHtml = await devRootResponse.text();
+  assert.match(devRootHtml, /\/@vite\/client/);
+  assert.match(devRootHtml, /\/app\/bootstrap\.ts/);
+  await assertResponse(devOrigin, "/app/bootstrap.ts", {
+    status: 200,
+    contentType: /javascript/,
+  });
   await assertResponse(devOrigin, "/phase0/main.ts", { status: 200 });
   await assertResponse(devOrigin, "/@vite/client", { status: 200 });
   await stopServer();
@@ -330,6 +353,14 @@ try {
     mode: "dev",
   });
   const restartedDevOrigin = `http://127.0.0.1:${restartedDevAddress.port}`;
+  await assertResponse(restartedDevOrigin, "/", {
+    status: 200,
+    contentType: /text\/html/,
+  });
+  await assertResponse(restartedDevOrigin, "/app/bootstrap.ts", {
+    status: 200,
+    contentType: /javascript/,
+  });
   await assertResponse(restartedDevOrigin, "/phase0/main.ts", { status: 200 });
   await assertResponse(restartedDevOrigin, "/@vite/client", { status: 200 });
   await stopServer();
@@ -341,6 +372,7 @@ try {
     mode: "built",
   });
   const afterDevOrigin = `http://127.0.0.1:${afterDevAddress.port}`;
+  await assertResponse(afterDevOrigin, "/app/bootstrap.ts", { status: 404 });
   await assertResponse(afterDevOrigin, "/phase0/main.ts", { status: 404 });
   await assertResponse(afterDevOrigin, "/@vite/client", { status: 404 });
   await assertResponse(afterDevOrigin, "/definitely-not-built", {

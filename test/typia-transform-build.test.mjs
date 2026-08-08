@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
+import ttsc from "@ttsc/unplugin/vite";
 import { build } from "vite";
 
 const repoRoot = path.resolve(
@@ -27,21 +28,25 @@ test(
     });
 
     const result = await build({
-      configFile: path.join(repoRoot, "vite.config.ts"),
+      configFile: false,
+      plugins: [ttsc()],
       logLevel: "silent",
       publicDir: false,
       build: {
+        lib: {
+          entry: proofModulePath,
+          formats: ["es"],
+          fileName: "typia-proof",
+        },
         outDir: tmpOut,
         emptyOutDir: true,
-        rolldownOptions: {
-          input: { "typia-proof": proofModulePath },
-        },
       },
     });
 
-    assert.equal(Array.isArray(result), false);
-    const output = /** @type {import("vite").Rollup.RolldownOutput} */ (result);
-    const entryChunk = output.output.find(
+    const output = Array.isArray(result)
+      ? /** @type {import("vite").Rollup.RolldownOutput} */ (result[0]).output
+      : /** @type {import("vite").Rollup.RolldownOutput} */ (result).output;
+    const entryChunk = output.find(
       (artifact) =>
         artifact.type === "chunk" &&
         artifact.isEntry === true &&

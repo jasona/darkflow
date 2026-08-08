@@ -9,7 +9,7 @@ const manager = readFileSync(join(root, 'public/js/tutorial-manager.js'), 'utf8'
 const styles = readFileSync(join(root, 'public/css/tutorial.css'), 'utf8');
 const app = readFileSync(join(root, 'public/js/app.js'), 'utf8');
 const connection = readFileSync(join(root, 'public/js/connection.js'), 'utf8');
-const html = readFileSync(join(root, 'public/index.html'), 'utf8');
+const html = readFileSync(join(root, 'client/index.html'), 'utf8');
 
 test('tutorial hover is dedicated, accessible, nonmodal, and initialized', () => {
   assert.match(manager, /role', 'complementary'/);

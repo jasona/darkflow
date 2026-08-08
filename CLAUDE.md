@@ -17,8 +17,8 @@ for structured data (panels, mapping, IDE, server-driven windows).
 - **Product identity** -- visible client branding and `Core.Hello.client`
   identify the app as Darkflow; existing `Darkwind.*` GMCP package names remain
   protocol-stable
-- Express server serves static files from `public/`; does not proxy WebSocket
-  traffic
+- Express server serves static files from `public/` in development and
+  `dist/client/` in built mode; does not proxy WebSocket traffic
 - The LDMud driver auto-detects WebSocket connections on the same port as telnet
   (no separate WS port)
 - Text frames carry commands (client->server) and game output (server->client)
@@ -94,8 +94,8 @@ this client:
   discovers files under a `test/` directory.
 - `/mcp` mounts only when `mud-test-mcp` dependencies are installed. Root-level
   `npm ci` does not install those dependencies.
-- ESLint and Prettier cover the Phase 0 TypeScript, Svelte, and browser-test
-  surface plus their configuration files. Run `npm run lint` and
+- ESLint and Prettier cover the Phase 0 and root bootstrap TypeScript, Svelte,
+  and browser-test surface plus their configuration files. Run `npm run lint` and
   `npm run format:check` before committing.
 - Legacy JavaScript, including `server.js`, `lib/`, `desktop/`, and `public/`,
   is outside the formatter boundary. Preserve each legacy file's existing

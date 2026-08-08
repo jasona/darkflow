@@ -86,13 +86,30 @@ test(
         mode: "dev",
       });
       const origin = `http://127.0.0.1:${address.port}`;
-      const rootHtml = await fs.readFile(
-        path.join(root, "public", "index.html"),
-        "utf8",
-      );
 
       const rootResponse = await fetch(`${origin}/`);
-      assert.equal(await rootResponse.text(), rootHtml);
+      assert.equal(rootResponse.status, 200);
+      const rootHtml = await rootResponse.text();
+      assert.match(rootHtml, /\/@vite\/client/);
+      assert.match(rootHtml, /\/app\/bootstrap\.ts/);
+      assert.doesNotMatch(rootHtml, /js\/app\.js/);
+
+      const indexResponse = await fetch(`${origin}/index.html`);
+      assert.equal(indexResponse.status, 200);
+      const indexHtml = await indexResponse.text();
+      assert.match(indexHtml, /\/@vite\/client/);
+      assert.match(indexHtml, /\/app\/bootstrap\.ts/);
+
+      const bootstrapResponse = await fetch(`${origin}/app/bootstrap.ts`);
+      assert.equal(bootstrapResponse.status, 200);
+      assert.match(
+        bootstrapResponse.headers.get("content-type") || "",
+        /javascript/,
+      );
+      assert.doesNotMatch(
+        await bootstrapResponse.text(),
+        /no transform has been configured/,
+      );
 
       const configResponse = await fetch(`${origin}/config.json`);
       assert.equal(configResponse.status, 200);
@@ -160,7 +177,7 @@ test(
 
       process.env.DARKFLOW_DESKTOP = "1";
       process.env.DARKFLOW_DESKTOP_TOKEN = "dev-server-test-token";
-      for (const endpoint of ["/phase0/", "/@vite/client"]) {
+      for (const endpoint of ["/", "/index.html", "/phase0/", "/@vite/client"]) {
         const denied = await fetch(`${origin}${endpoint}`);
         assert.equal(denied.status, 403);
         const allowed = await fetch(`${origin}${endpoint}`, {

@@ -5,6 +5,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 const scriptFiles = [
+  "client/app/**/*.ts",
   "client/phase0/**/*.{js,ts}",
   "e2e/**/*.ts",
   "*.config.mjs",

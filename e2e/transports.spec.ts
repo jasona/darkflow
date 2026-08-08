@@ -70,7 +70,11 @@ for (const transport of transports) {
       localStorage.setItem("darkwind-client-settings", JSON.stringify({ autoReconnect: false }));
     });
 
+    const configResponse = page.waitForResponse(
+      (response) => response.url().endsWith("/config.json") && response.ok(),
+    );
     await page.goto("/?debugWs=1");
+    await configResponse;
     await connectThroughPublicControls(page, endpoint);
 
     const expectedUrl = transportUrl(endpoint);

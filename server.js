@@ -37,6 +37,7 @@ let selectedClientRoot = null;
 let selectedStaticMiddleware = null;
 let selectedDevMiddleware = null;
 let selectedDevPhaseRoute = null;
+let selectedDevRootRoute = null;
 let frontendMiddlewareMounted = false;
 
 function hasDesktopSession(req) {
@@ -414,6 +415,10 @@ async function initializeApp(mode) {
       if (!selectedDevPhaseRoute) return next();
       return selectedDevPhaseRoute(req, res, next);
     });
+    app.get(['/', '/index.html'], (req, res, next) => {
+      if (!selectedDevRootRoute) return next();
+      return selectedDevRootRoute(req, res, next);
+    });
     frontendMiddlewareMounted = true;
   }
 
@@ -425,6 +430,7 @@ async function initializeApp(mode) {
     devClient = client;
     selectedDevMiddleware = client.middleware;
     selectedDevPhaseRoute = client.servePhase0;
+    selectedDevRootRoute = client.serveRoot;
   }
   serveInfo.mode = mode;
 }
@@ -438,6 +444,7 @@ async function resetClientState() {
   selectedStaticMiddleware = null;
   selectedDevMiddleware = null;
   selectedDevPhaseRoute = null;
+  selectedDevRootRoute = null;
   serveInfo = { mode: null, mcp: null };
   await clientToClose?.close();
 }

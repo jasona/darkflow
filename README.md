@@ -2,7 +2,7 @@
 
 Darkflow is the official web and desktop client for Darkwind. It is a fast, terminal-first WebSocket client with Darkwind-specific panels, mapping, media, builder tools, settings, and GMCP integrations layered around the live MUD session.
 
-The app is intentionally lightweight: Express serves static files, the browser connects directly to the MUD over WebSocket, and the legacy frontend is native ES modules with no build required for the default web or unpackaged Electron development experience. During the Phase 0 migration, Vite produces the validated artifact used by packaged Electron and Docker without changing those development defaults.
+The app is intentionally lightweight: Express serves static files, the browser connects directly to the MUD over WebSocket, and most of the runtime remains native ES modules under `public/js/`. A small Vite-built root bootstrap in `client/` now owns startup for both development and release artifacts; the legacy module graph is still loaded at runtime from copied `public/` output, not bundled into the bootstrap.
 
 ## What Darkflow Supports
 
@@ -35,10 +35,107 @@ Darkflow identifies itself in GMCP as:
 { "client": "Darkflow", "version": "<runtime version>" }
 ```
 
-In the default legacy and development modes, the version comes from
-`public/version.json`. The opt-in built mode uses `dist/client/version.json`,
-which is generated from `package.json`; the custom protocol packages remain
-`Darkwind.*` for compatibility.
+In the default development mode, the version comes from
+`public/version.json`. Built and release modes use `dist/client/version.json`,
+which is generated from `package.json` during `npm run build`; the custom
+protocol packages remain `Darkwind.*` for compatibility.
+
+## Build System and Release Workflow
+
+If you are cutting a release and were not involved in the Phase 1 migration,
+read this section first. The player-visible UI is unchanged, but **how the app
+starts and what ships in production changed**.
+
+### Architecture in one paragraph
+
+The visible shell HTML lives in `client/index.html`. At page load, a generated
+root bundle (built from `client/app/bootstrap.ts`) runs first, proves it passed
+through the Typia transform, then dynamically imports the unchanged legacy entry
+at `/js/app.js`. CSS, images, audio, and the rest of the game client still live
+under `public/` and are copied into `dist/client/` at build time — they are not
+converted to TypeScript and are not bundled into the root bootstrap. A separate
+Phase 0 harness at `/phase0/` is another Vite entry used for migration work;
+it is not the main game shell.
+
+```text
+Development (npm run dev)
+  client/index.html  --Vite transform-->  /app/bootstrap.ts  --runtime import-->  public/js/app.js
+
+Production / release (npm run build)
+  dist/client/index.html  -->  dist/client/assets/root-*.js  -->  dist/client/js/app.js
+```
+
+### Three ways to run the client
+
+| Command                                      | When to use                                            | Root HTML                                   | Legacy JS/CSS              | Build required?                                        |
+| -------------------------------------------- | ------------------------------------------------------ | ------------------------------------------- | -------------------------- | ------------------------------------------------------ |
+| `npm run dev`                                | Day-to-day UI and server work                          | Vite-transformed `client/index.html` at `/` | Served from `public/`      | No                                                     |
+| `npm run build` then `npm start`             | Production-like web server locally, CI, Docker runtime | Generated `dist/client/index.html`          | Copied into `dist/client/` | Yes                                                    |
+| `npm run desktop` or any `desktop:*` command | Electron development or packaging                      | Same built artifact as `npm start`          | Copied into `dist/client/` | Yes — every desktop command runs `npm run build` first |
+
+**Important:** `npm start` defaults to **built** mode. It serves `dist/client/` and
+refuses to start if that artifact is missing or invalid. It does **not** fall back
+to raw `public/` files. For local iteration without a build step, use
+`npm run dev`.
+
+Development still exposes Vite HMR for `/phase0/` and transforms the root
+bootstrap on the shared Express origin. Production, Docker, and packaged Electron
+expose only the generated files under `dist/client/` — no raw `.ts`, no
+`/@vite/client`, and no `public/` or `client/` source trees.
+
+### What `npm run build` produces
+
+`vite build` writes the release artifact to `dist/client/`:
+
+- `index.html` — generated shell; references a hashed `assets/root-*.js` bundle, not `/js/app.js` or `.ts` directly
+- `assets/root-*.js` — root bootstrap with Typia-transformed startup code and the runtime `/js/app.js` handoff
+- `phase0/` — isolated Phase 0 harness bundle (separate Vite input)
+- `js/`, `css/`, `assets/`, and the rest of `public/**` — byte-copied legacy runtime files (`public/index.html` no longer exists in source)
+- `version.json` — `{ "version": "<package.json version>" }`, written by the postbuild step
+
+The postbuild hook also runs validation gates that must pass before the artifact
+is considered releasable:
+
+- `verify:bundle` — fails if any shipped JavaScript still contains untransformed Typia factory code
+- `verify:client-artifact` — fails if the root entry bypasses the generated bootstrap, if Phase 0 or public-file parity checks fail, or if `version.json` does not match `package.json`
+
+Run `npm run build` explicitly before `npm start`, Docker image builds that
+expect a prebuilt tree, or any manual inspection of `dist/client/`. CI and
+`npm run desktop:*` already invoke it.
+
+### Where to edit what
+
+| You want to change…                                   | Edit…                                                |
+| ----------------------------------------------------- | ---------------------------------------------------- |
+| Toolbar, terminal shell, DOM structure, favicon links | `client/index.html`                                  |
+| Game logic, panels, connection, GMCP handlers         | `public/js/**` (same as before)                      |
+| Styles and static assets                              | `public/css/**`, `public/assets/**`                  |
+| Root startup / future multi-connection bootstrap      | `client/app/**` (TypeScript, linted and typechecked) |
+| Phase 0 harness only                                  | `client/phase0/**`                                   |
+
+Do not recreate `public/index.html`; the root entry moved to `client/index.html`
+on purpose so Vite owns startup without bundling the entire legacy graph.
+
+### Web release checklist
+
+1. Bump the version with `npm run version:set -- <version>` (keeps `package.json`, lockfile, and `public/version.json` aligned).
+2. On the pinned toolchain (`nvm use && npm ci`), run the quality gates you normally use before merge (`npm test`, browser tests, etc.).
+3. Run `npm run build` and confirm postbuild validation succeeds.
+4. Deploy the server plus the **`dist/client/` artifact**. Docker builds and validates this artifact inside the image; its runtime image contains no `public/`, `client/`, Vite, or test sources.
+
+Browser clients detect updates via `/api/version`, which reads `dist/client/version.json` in built mode.
+
+### Desktop and Docker releases
+
+- **Desktop:** every `npm run desktop:*` command rebuilds and validates `dist/client/` before packaging. Unpacked and packaged Electron builds load the same generated root as production web — not raw `public/`. Tagging, installers, auto-update metadata, and platform-specific release steps are documented in [docs/desktop.md](docs/desktop.md).
+- **Docker:** `docker build` runs `npm run build` in a builder stage and copies only `dist/client/` into the runtime image. See the [Docker](#docker) section below.
+
+### Common release mistakes
+
+- Running `npm start` or shipping Docker/Electron without a fresh `npm run build` → intentional startup failure or stale UI.
+- Editing or expecting `public/index.html` → that file was removed; use `client/index.html`.
+- Assuming development HMR or raw TypeScript routes exist in production → they do not; only generated assets ship.
+- Bumping `package.json` without rebuilding → `dist/client/version.json` and GMCP `Core.Hello` stay stale until the next successful build.
 
 ## Quick Start
 
@@ -47,11 +144,19 @@ Requires [Node.js](https://nodejs.org/) 22.15.0+.
 ```bash
 git clone https://github.com/jasona/darkflow.git
 cd darkflow
-npm install
-npm start
+nvm use          # Node 22.15.0 — required by package.json engines
+npm ci
+npm run dev      # development server with Vite-transformed root at /
 ```
 
 Open `http://localhost:3000`. If no host is configured by the server, enter the MUD host and port manually and click **Connect**.
+
+For a production-like local server (what Docker and deployment use), build first:
+
+```bash
+npm run build
+npm start
+```
 
 To launch the desktop client during development:
 
@@ -64,6 +169,9 @@ auto-updates, signing, versioned releases, and Steam depot builds.
 
 ### Production start
 
+This is the same **built** mode used by deployment and `npm start` without
+`--dev`. See [Build System and Release Workflow](#build-system-and-release-workflow) for what the artifact contains.
+
 ```bash
 npm run build
 npm start
@@ -71,8 +179,8 @@ npm start
 
 `npm start` serves the validated files under `dist/client/`. Missing or invalid
 built output is an intentional startup failure; run `npm run build` to
-regenerate it. Use `npm run dev` for development against source files in
-`public/` with Vite HMR at `/phase0/`. Electron desktop commands build and
+regenerate it. Use `npm run dev` for development with Vite-transformed root
+HTML at `/` and HMR at `/phase0/`. Electron desktop commands build and
 serve `dist/client/` as well.
 
 ## Configuration
@@ -142,8 +250,12 @@ npm run test:mcp         # clean install and test of the separately owned MCP ha
 .
 ├── server.js                    # Express server with legacy, development, and opt-in built modes
 ├── desktop/                     # Electron main/preload, updater, and release helpers
+├── client/
+│   ├── index.html               # Vite-transformed Darkflow app shell
+│   ├── app/
+│   │   └── bootstrap.ts         # Root bootstrap with Typia transform proof
+│   └── phase0/                  # Phase 0 harness (Typia, HMR, Dockview)
 ├── public/
-│   ├── index.html               # Darkflow app shell
 │   ├── darkflow-brand.html      # Hidden brand asset download page
 │   ├── site.webmanifest         # PWA/app metadata
 │   ├── version.json             # Runtime client version
@@ -219,12 +331,14 @@ The generated source sheet is stored as `Gemini_Generated_Image_itemzcitemzcitem
 
 ## Development Notes
 
-- No frontend build step is required for `npm run dev`; edit source files in
-  `public/` directly and use Vite HMR at `/phase0/`.
+- Use `npm run dev` for day-to-day work; it serves a Vite-transformed root at
+  `/` while legacy assets and modules remain under `public/`. HMR for the Phase 0
+  harness is at `/phase0/`.
 - `npm start`, packaged Electron, and Docker require a freshly built,
   validated `dist/client/` artifact and do not carry a `public/` fallback.
-- Run `npm run build` before `npm start`; the build rewrites and validates
-  `dist/client/version.json` from `package.json`.
+  See [Build System and Release Workflow](#build-system-and-release-workflow).
+- Run `npm run build` before `npm start` or any release packaging; the build
+  rewrites and validates `dist/client/version.json` from `package.json`.
 - Keep `/api/version` aligned with the selected client root: `public/version.json`
   for development and generated `dist/client/version.json` for built mode. The
   client uses it for update detection and GMCP `Core.Hello`.

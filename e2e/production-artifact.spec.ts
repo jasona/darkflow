@@ -87,6 +87,16 @@ test("built artifact renders the legacy client and preserves production contract
 
   await expect
     .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { __darkflowPhase1Bootstrap?: { phase: string } })
+            .__darkflowPhase1Bootstrap?.phase,
+      ),
+    )
+    .toBe("legacy-loaded");
+
+  await expect
+    .poll(() =>
       page.evaluate(() => {
         const runtime = window as unknown as Record<string, unknown>;
         return {
@@ -96,6 +106,14 @@ test("built artifact renders the legacy client and preserves production contract
       }),
     )
     .toEqual({ howl: "function", howler: "object" });
+
+  const rootHtml = await page.content();
+  expect(rootHtml).not.toMatch(/\/js\/app\.js/);
+  expect(rootHtml).not.toMatch(/\.ts["']/);
+  const rootBundle = rootHtml.match(/src="(\/assets\/[^"]+\.js)"/)?.[1];
+  expect(rootBundle, "index.html must reference a generated JavaScript bundle").toBeTruthy();
+  expect(rootBundle).not.toMatch(/phase0-/);
+  await expectResource(page, rootBundle!, /^(?:text|application)\/javascript\b/);
 
   const config = await expectResource(page, "/config.json", /^application\/json\b/);
   expect(JSON.parse(config.body)).toMatchObject({ host: "" });
@@ -117,6 +135,7 @@ test("built artifact renders the legacy client and preserves production contract
   await expectResource(page, "/phase0/", /^text\/html\b/);
 
   expect((await page.request.get(`${appOrigin}/phase0/main.ts`)).status()).toBe(404);
+  expect((await page.request.get(`${appOrigin}/app/bootstrap.ts`)).status()).toBe(404);
   expect((await page.request.get(`${appOrigin}/@vite/client`)).status()).toBe(404);
   expect(
     await page.evaluate(

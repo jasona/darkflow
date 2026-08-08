@@ -14,6 +14,18 @@ test("phase 0 harness renders the Typia proof", async ({ page }) => {
 test("legacy root renders its client shell", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#toolbar")).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { __darkflowPhase1Bootstrap?: { phase: string } })
+            .__darkflowPhase1Bootstrap?.phase,
+      ),
+    )
+    .toBe("legacy-loaded");
+  await expect
+    .poll(() => page.evaluate(() => typeof (window as unknown as { Howler?: unknown }).Howler))
+    .toBe("object");
 });
 
 test("protocol validator HMR preserves window state", async ({ page }) => {
