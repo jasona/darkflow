@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const net = require('net');
 const tls = require('tls');
 const { WebSocketServer } = require('ws');
+const { validateClientArtifact } = require('./lib/client-artifact');
 
 // Load .env file if it exists (no dependency needed)
 try {
@@ -26,9 +27,17 @@ const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const DESKTOP_COOKIE_NAME = 'darkflow-desktop-token';
 const HOWLER_CORE_PATH = require.resolve('howler/dist/howler.core.min.js');
+const PUBLIC_CLIENT_ROOT = path.join(__dirname, 'public');
+const BUILT_CLIENT_ROOT = path.join(__dirname, 'dist', 'client');
+const PACKAGE_VERSION = require('./package.json').version;
 let initPromise = null;
 let serveInfo = { mode: null, mcp: null };
 let devClient = null;
+let selectedClientRoot = null;
+let selectedStaticMiddleware = null;
+let selectedDevMiddleware = null;
+let selectedDevPhaseRoute = null;
+let frontendMiddlewareMounted = false;
 
 function hasDesktopSession(req) {
   if (process.env.DARKFLOW_DESKTOP !== '1') return true;
@@ -68,12 +77,16 @@ app.get('/config.json', (req, res) => {
 // Client version endpoint (no caching so stale tabs always get current version)
 app.get('/api/version', (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const versionFile = path.join(__dirname, 'public', 'version.json');
+  const versionFile = path.join(selectedClientRoot || PUBLIC_CLIENT_ROOT, 'version.json');
   try {
     const data = JSON.parse(fs.readFileSync(versionFile, 'utf8'));
     res.json(data);
   } catch(e) {
-    res.json({ version: 'unknown' });
+    if (serveInfo.mode === 'built') {
+      res.status(500).json({ error: 'Built client version is unavailable' });
+    } else {
+      res.json({ version: 'unknown' });
+    }
   }
 });
 
@@ -113,6 +126,7 @@ const { IAC, DO, TELOPT_GMCP } = constants;
 const MAX_PENDING_GMCP_BYTES = 64 * 1024;
 
 const devMode = process.argv.includes('--dev');
+const builtClientMode = process.argv.includes('--built-client');
 if (devMode && !process.env.DARKFLOW_LOG_DIR) {
   process.env.DARKFLOW_LOG_DIR = path.join(os.tmpdir(), 'darkflow-dev-log');
 }
@@ -335,9 +349,28 @@ wss.on('connection', (ws, req) => {
  * Mounts the optional MCP relay before the selected frontend middleware.
  */
 async function initializeApp(mode) {
-  if (!['legacy', 'dev'].includes(mode)) {
+  if (!['legacy', 'dev', 'built'].includes(mode)) {
     throw new Error(`Unknown serve mode: ${mode}`);
   }
+
+  const clientRoot = mode === 'built' ? BUILT_CLIENT_ROOT : PUBLIC_CLIENT_ROOT;
+  if (mode === 'built') {
+    try {
+      await validateClientArtifact({
+        artifactDir: BUILT_CLIENT_ROOT,
+        publicDir: PUBLIC_CLIENT_ROOT,
+        expectedVersion: PACKAGE_VERSION,
+      });
+    } catch (error) {
+      throw new Error(
+        `Built client artifact is missing or invalid. Run \`npm run build\` and retry. ${error.message}`,
+        { cause: error },
+      );
+    }
+  }
+
+  selectedClientRoot = clientRoot;
+  selectedStaticMiddleware = express.static(clientRoot);
 
   const mcpPath = process.env.MCP_PATH || '/mcp';
   if (process.env.MCP_ENABLED === '0') {
@@ -367,15 +400,48 @@ async function initializeApp(mode) {
     }
   }
 
-  app.use(express.static(path.join(__dirname, 'public')));
+  // Mount stable frontend dispatchers after MCP only once. Their selected
+  // handlers are lifecycle state, so restarts do not retain old static roots
+  // or closed Vite server graphs in Express's persistent middleware stack.
+  if (!frontendMiddlewareMounted) {
+    app.use((req, res, next) => {
+      if (!selectedStaticMiddleware) return next();
+      return selectedStaticMiddleware(req, res, next);
+    });
+    app.use((req, res, next) => {
+      if (!selectedDevMiddleware) return next();
+      return selectedDevMiddleware(req, res, next);
+    });
+    app.get(['/phase0/', '/phase0/index.html'], (req, res, next) => {
+      if (!selectedDevPhaseRoute) return next();
+      return selectedDevPhaseRoute(req, res, next);
+    });
+    frontendMiddlewareMounted = true;
+  }
+
   if (mode === 'dev') {
-    devClient = await require('./lib/dev-client.js').attachDevClient({
-      app,
+    const client = await require('./lib/dev-client.js').attachDevClient({
       server,
       root: __dirname,
     });
+    devClient = client;
+    selectedDevMiddleware = client.middleware;
+    selectedDevPhaseRoute = client.servePhase0;
   }
   serveInfo.mode = mode;
+}
+
+/** Clears replaceable frontend lifecycle state and closes its Vite server. */
+async function resetClientState() {
+  const clientToClose = devClient;
+  devClient = null;
+  initPromise = null;
+  selectedClientRoot = null;
+  selectedStaticMiddleware = null;
+  selectedDevMiddleware = null;
+  selectedDevPhaseRoute = null;
+  serveInfo = { mode: null, mcp: null };
+  await clientToClose?.close();
 }
 
 /**
@@ -383,13 +449,24 @@ async function initializeApp(mode) {
  */
 async function startServer({ port = PORT, host = process.env.HOST, mode = 'legacy' } = {}) {
   if (server.listening) return Promise.resolve(server.address());
-  initPromise ??= initializeApp(mode);
-  await initPromise;
+  const initialization = initPromise ??= initializeApp(mode);
+  try {
+    await initialization;
+  } catch (error) {
+    if (initPromise === initialization) await resetClientState();
+    throw error;
+  }
 
   return new Promise((resolve, reject) => {
     const onError = (error) => {
       server.off('listening', onListening);
-      reject(error);
+      resetClientState().then(
+        () => reject(error),
+        (cleanupError) => {
+          error.cleanupError = cleanupError;
+          reject(error);
+        },
+      );
     };
     const onListening = () => {
       server.off('error', onError);
@@ -406,10 +483,7 @@ async function startServer({ port = PORT, host = process.env.HOST, mode = 'legac
  * Stops Vite, proxy clients, and the shared HTTP server.
  */
 async function stopServer() {
-  await devClient?.close();
-  devClient = null;
-  initPromise = null;
-  serveInfo = { mode: null, mcp: null };
+  await resetClientState();
   for (const client of wss.clients) client.terminate();
   if (!server.listening) return;
 
@@ -422,7 +496,10 @@ async function stopServer() {
 }
 
 if (require.main === module) {
-  startServer({ mode: devMode ? 'dev' : 'legacy' }).then((address) => {
+  if (devMode && builtClientMode) {
+    console.error('Darkflow failed to start: --dev and --built-client cannot be combined');
+    process.exitCode = 1;
+  } else startServer({ mode: devMode ? 'dev' : builtClientMode ? 'built' : 'legacy' }).then((address) => {
     const port = address && typeof address === 'object' ? address.port : PORT;
     console.log(`Darkflow listening on port ${port}`);
     console.log(`Proxy endpoint: ws[s]://<host>:${port}/proxy?host=X&port=Y&tls=0|1`);

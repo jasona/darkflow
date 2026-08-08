@@ -2,7 +2,7 @@
 
 Darkflow is the official web and desktop client for Darkwind. It is a fast, terminal-first WebSocket client with Darkwind-specific panels, mapping, media, builder tools, settings, and GMCP integrations layered around the live MUD session.
 
-The app is intentionally lightweight: Express serves static files, the browser connects directly to the MUD over WebSocket, and the frontend is native ES modules with no build step or client-side framework. Electron packages that same server and frontend for Windows, macOS, Linux, and Steam without creating a separate client fork.
+The app is intentionally lightweight: Express serves static files, the browser connects directly to the MUD over WebSocket, and the legacy frontend is native ES modules with no build required for the default web or Electron experience. During the Phase 0 migration, an opt-in Vite build proves the future production artifact without changing those defaults. Electron packages the legacy server and frontend for Windows, macOS, Linux, and Steam without creating a separate client fork.
 
 ## What Darkflow Supports
 
@@ -35,8 +35,10 @@ Darkflow identifies itself in GMCP as:
 { "client": "Darkflow", "version": "<runtime version>" }
 ```
 
-The version comes from `public/version.json`; the custom protocol packages
-remain `Darkwind.*` for compatibility.
+In the default legacy and development modes, the version comes from
+`public/version.json`. The opt-in built mode uses `dist/client/version.json`,
+which is generated from `package.json`; the custom protocol packages remain
+`Darkwind.*` for compatibility.
 
 ## Quick Start
 
@@ -60,6 +62,20 @@ npm run desktop
 See [Darkwind Desktop Client](docs/desktop.md) for native packages, GitHub
 auto-updates, signing, versioned releases, and Steam depot builds.
 
+### Opt-in built client
+
+Phase 0 also provides a production-artifact path for verification:
+
+```bash
+npm run build
+npm run start:built
+```
+
+This serves only the validated files under `dist/client/`. Missing or invalid
+built output is an intentional startup failure; run `npm run build` to
+regenerate it. `npm start` still serves `public/` directly and does not require
+a build, and Electron remains on that legacy path.
+
 ## Configuration
 
 The Express server serves static files and exposes `/config.json` and `/api/version`.
@@ -77,7 +93,10 @@ The Express server serves static files and exposes `/config.json` and `/api/vers
 | `MCP_AUTH_TOKEN` | empty | If set, MCP clients must send `Authorization: Bearer <token>` |
 | `DARKFLOW_LOG_DIR` | `./log` | Proxy log directory; Electron sets this to per-user app data |
 
-The runtime client version is stored in `public/version.json` and returned by `/api/version` with `Cache-Control: no-store`.
+The runtime client version is returned by `/api/version` with
+`Cache-Control: no-store`. Legacy and development serving read
+`public/version.json`; built serving reads the generated
+`dist/client/version.json`.
 
 ## MCP / MUD test harness
 
@@ -111,7 +130,7 @@ docker run -p 3000:3000 darkflow-client
 
 ```
 .
-├── server.js                    # Express static server plus config/version endpoints
+├── server.js                    # Express server with legacy, development, and opt-in built modes
 ├── desktop/                     # Electron main/preload, updater, and release helpers
 ├── public/
 │   ├── index.html               # Darkflow app shell
@@ -147,6 +166,8 @@ docker run -p 3000:3000 darkflow-client
 │       ├── completion.js        # Local/server Tab completion
 │       ├── announcements-manager.js
 │       └── giphy-manager.js
+├── scripts/                     # Build artifact generation and validation commands
+├── dist/client/                 # Ignored, generated built-client artifact
 ├── docs/                        # GMCP protocol + MCP/test-harness documentation
 ├── mud-test-mcp/                # MCP relay + CLI MUD test harness (see docs/mcp.md)
 ├── Dockerfile
@@ -188,8 +209,9 @@ The generated source sheet is stored as `Gemini_Generated_Image_itemzcitemzcitem
 
 ## Development Notes
 
-- No frontend build step is required; edit files in `public/` directly.
-- Keep `/api/version` backed by `public/version.json`; the client uses it for update detection and GMCP `Core.Hello`.
+- No frontend build step is required for `npm start` or Electron; edit legacy files in `public/` directly.
+- Run `npm run build` before `npm run start:built`; the build rewrites and validates `dist/client/version.json` from `package.json`.
+- Keep `/api/version` aligned with the selected client root: `public/version.json` for legacy/development and generated `dist/client/version.json` for built mode. The client uses it for update detection and GMCP `Core.Hello`.
 - Keep the visible product name as **Darkflow**, but do not rename existing `Darkwind.*` GMCP packages without a coordinated server compatibility plan.
 - The settings export format remains `darkwind-client-settings-export` for backward compatibility, even though download filenames now use `darkflow-settings-...json`.
 - Keep browser game audio behind `sound-manager.js` and `howler-audio-engine.js`; the server exposes the pinned Howler core runtime at `/vendor/howler.core.min.js` for both web and Electron clients.
