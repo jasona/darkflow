@@ -2,16 +2,16 @@
 
 The desktop client packages the existing Darkflow web application in Electron.
 It is not a second frontend: Electron starts `server.js` on a private loopback
-origin and loads the same `public/` files used by `play.darkwind.ai`.
-Changes to Darkflow therefore reach the website and the next desktop release
-from one codebase.
+origin. Unpackaged development loads `public/`; smoke tests and packaged builds
+load the validated `dist/client/` artifact from the same codebase.
 
 ## Architecture
 
 ```text
 Electron main process
   -> Express + WebSocket proxy on 127.0.0.1:47831
-  -> BrowserWindow loads the existing public/ client
+  -> BrowserWindow loads public/ in unpackaged development
+  -> BrowserWindow loads dist/client/ in smoke and packaged runs
   -> preload exposes only version/update operations
 
 Browser deployment
@@ -35,8 +35,8 @@ Install dependencies once, then start either surface:
 ```bash
 npm install
 npm start          # web client at http://localhost:3000
-npm run desktop    # Electron using the same client files
-npm run desktop:smoke  # verify the renderer/preload/server handshake and exit
+npm run desktop    # unpackaged Electron using legacy public/ files
+npm run desktop:smoke  # build, verify the built renderer/preload/server, and exit
 ```
 
 The desktop runtime defaults to `darkwind.ai:4242` over WSS. Environment
@@ -51,6 +51,7 @@ Build the current operating system:
 
 ```bash
 npm run desktop:pack        # unpacked application for smoke testing
+npm run desktop:smoke:packaged  # launch and verify that unpacked application
 npm run desktop:dist        # installers for the current OS
 ```
 
@@ -62,7 +63,9 @@ npm run desktop:dist:win
 npm run desktop:dist:linux
 ```
 
-Build on the target operating system. Output is written to `dist/desktop/`.
+Every package command first rebuilds and validates `dist/client/`; packages do
+not contain `public/` or client source as a fallback. Build on the target
+operating system. Output is written to `dist/desktop/`.
 Configured direct-download targets are:
 
 | Platform | Targets |

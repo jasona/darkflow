@@ -9,6 +9,7 @@ const {
   dialog,
   ipcMain,
   Menu,
+  nativeImage,
   screen,
   shell,
 } = require('electron');
@@ -18,6 +19,7 @@ const {
   isAllowedAppUrl,
   isSafeExternalUrl,
   isSteamDistribution,
+  selectDesktopServeMode,
 } = require('./runtime.cjs');
 
 const PRODUCT_NAME = 'Darkwind';
@@ -27,12 +29,22 @@ const smokeTest = process.argv.includes('--smoke-test');
 const steamDistribution = isSteamDistribution({
   distribution: packageMetadata.darkflowDistribution,
 });
+const desktopServeMode = selectDesktopServeMode({
+  isPackaged: app.isPackaged,
+});
+const clientRoot = path.join(
+  __dirname,
+  '..',
+  ...(desktopServeMode === 'built' ? ['dist', 'client'] : ['public']),
+);
+const windowIconPath = path.join(clientRoot, 'assets', 'brand', 'darkflow-icon-512.png');
 
 let appOrigin = '';
 let desktopToken = '';
 let mainWindow = null;
 let stopLocalServer = null;
 let updater = null;
+let smokeDiagnostics = null;
 
 app.setName(PRODUCT_NAME);
 app.setAppUserModelId('ai.darkwind.game');
@@ -81,7 +93,11 @@ async function startDesktopApp() {
   configureDesktopEnvironment();
 
   const { startServer, stopServer } = require('../server.js');
-  const address = await startServer({ port: requestedDesktopPort(), host: '127.0.0.1' });
+  const address = await startServer({
+    port: requestedDesktopPort(),
+    host: '127.0.0.1',
+    mode: desktopServeMode,
+  });
   if (!address || typeof address !== 'object') {
     throw new Error('The local Darkflow server did not return a TCP address.');
   }
@@ -108,7 +124,8 @@ function configureDesktopEnvironment() {
   desktopToken = crypto.randomBytes(32).toString('hex');
   process.env.DARKFLOW_DESKTOP_TOKEN = desktopToken;
   process.env.DARKFLOW_LOG_DIR = path.join(app.getPath('userData'), 'logs');
-  if (!process.env.MUD_HOST) process.env.MUD_HOST = 'darkwind.ai';
+  if (smokeTest) process.env.MUD_HOST = '';
+  else if (!process.env.MUD_HOST) process.env.MUD_HOST = 'darkwind.ai';
   if (!process.env.MUD_PORT) process.env.MUD_PORT = '4242';
   if (!process.env.MUD_WSS) process.env.MUD_WSS = '1';
   if (!process.env.GAME_NAME) process.env.GAME_NAME = PRODUCT_NAME;
@@ -136,7 +153,7 @@ async function createMainWindow() {
     show: false,
     title: PRODUCT_NAME,
     backgroundColor: '#0d1117',
-    icon: path.join(__dirname, '..', 'public', 'assets', 'brand', 'darkflow-icon-512.png'),
+    icon: windowIconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
@@ -168,6 +185,7 @@ async function createMainWindow() {
     httpOnly: true,
     sameSite: 'strict',
   });
+  if (smokeTest) smokeDiagnostics = monitorSmokeFailures(localSession);
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     openExternal(url);
@@ -193,20 +211,100 @@ async function createMainWindow() {
 
 async function runSmokeTest() {
   try {
+    const localSession = mainWindow.webContents.session;
+
     const result = await mainWindow.webContents.executeJavaScript(`(async () => {
+      const fetchResult = async (url, responseType = null) => {
+        const response = await fetch(url);
+        return {
+          status: response.status,
+          contentType: response.headers.get('content-type') || '',
+          body: responseType === 'json' ? await response.json() : null,
+        };
+      };
+      const desktopApi = window.darkflowDesktop;
+      const desktopApiKeys = Object.keys(desktopApi).sort();
       const info = await window.darkflowDesktop.getInfo();
-      const config = await fetch('/config.json').then((response) => response.json());
+      const configResponse = await fetchResult('/config.json', 'json');
+      const versionResponse = await fetchResult('/api/version', 'json');
       return {
         title: document.title,
-        desktopApi: Boolean(window.darkflowDesktop),
+        desktopApi: Boolean(desktopApi),
+        desktopApiFrozen: Object.isFrozen(desktopApi),
+        desktopApiKeys,
+        desktopApiFunctions: desktopApiKeys.every((key) => typeof desktopApi[key] === 'function'),
+        desktopCookieVisible: document.cookie.includes('darkflow-desktop-token='),
         howler: typeof window.Howl === 'function' && Boolean(window.Howler),
         info,
-        config,
+        config: configResponse,
+        version: versionResponse,
+        howlerRoute: await fetchResult('/vendor/howler.core.min.js'),
+        icon: await fetchResult('/assets/brand/darkflow-icon-512.png'),
+        phase0: await fetchResult('/phase0/'),
       };
     })()`);
 
-    if (!result.desktopApi || !result.howler || result.info.productName !== PRODUCT_NAME
-        || result.config.host !== 'darkwind.ai' || result.config.port !== 4242) {
+    const phase0Source = await fetchDesktopRoute('/phase0/main.ts');
+    const viteClient = await fetchDesktopRoute('/@vite/client');
+    const cookies = await localSession.cookies.get({
+      url: appOrigin,
+      name: 'darkflow-desktop-token',
+    });
+    const expectedDistribution = steamDistribution
+      ? 'steam'
+      : (app.isPackaged ? 'direct' : 'development');
+    const expectedUpdateState = app.isPackaged && !steamDistribution ? 'idle' : 'disabled';
+    const expectedDesktopApiKeys = [
+      'checkForUpdates',
+      'getInfo',
+      'installUpdate',
+      'onUpdateStatus',
+    ];
+    const icon = nativeImage.createFromPath(windowIconPath);
+
+    Object.assign(result, {
+      serveMode: desktopServeMode,
+      cookieCount: cookies.length,
+      cookieHttpOnly: cookies.length === 1 && cookies[0].httpOnly,
+      nativeIcon: !icon.isEmpty(),
+      phase0Source,
+      viteClient,
+      ...smokeDiagnostics,
+    });
+
+    if (desktopServeMode !== 'built'
+        || !result.desktopApi
+        || !result.desktopApiFrozen
+        || !result.desktopApiFunctions
+        || JSON.stringify(result.desktopApiKeys) !== JSON.stringify(expectedDesktopApiKeys)
+        || result.desktopCookieVisible
+        || result.cookieCount !== 1
+        || !result.cookieHttpOnly
+        || !result.howler
+        || !result.nativeIcon
+        || result.info.productName !== PRODUCT_NAME
+        || result.info.version !== packageMetadata.version
+        || result.info.platform !== process.platform
+        || result.info.distribution !== expectedDistribution
+        || result.info.updateStatus.state !== expectedUpdateState
+        || result.config.status !== 200
+        || result.config.body.host !== ''
+        || result.config.body.port !== 4242
+        || result.config.body.wss !== true
+        || result.config.body.gameName !== PRODUCT_NAME
+        || result.version.status !== 200
+        || result.version.body.version !== packageMetadata.version
+        || result.howlerRoute.status !== 200
+        || !/javascript/.test(result.howlerRoute.contentType)
+        || result.icon.status !== 200
+        || !/image\/png/.test(result.icon.contentType)
+        || result.phase0.status !== 200
+        || result.phase0Source.status !== 404
+        || result.viteClient.status !== 404
+        || smokeDiagnostics.consoleFailures.length
+        || smokeDiagnostics.pageFailures.length
+        || smokeDiagnostics.requestFailures.length
+        || smokeDiagnostics.websocketRequests.length) {
       throw new Error(`Unexpected smoke-test state: ${JSON.stringify(result)}`);
     }
     console.log('[desktop-smoke]', JSON.stringify(result));
@@ -215,6 +313,49 @@ async function runSmokeTest() {
     console.error('[desktop-smoke] failed:', error);
     app.exit(1);
   }
+}
+
+async function fetchDesktopRoute(route) {
+  const response = await fetch(new URL(route, appOrigin), {
+    headers: { Cookie: `darkflow-desktop-token=${desktopToken}` },
+  });
+  await response.arrayBuffer();
+  return {
+    status: response.status,
+    contentType: response.headers.get('content-type') || '',
+  };
+}
+
+function monitorSmokeFailures(localSession) {
+  const diagnostics = {
+    consoleFailures: [],
+    pageFailures: [],
+    requestFailures: [],
+    websocketRequests: [],
+  };
+
+  mainWindow.webContents.on('console-message', (event) => {
+    const level = event.level;
+    const text = event.message;
+    if (level === 'error' || level === 3) diagnostics.consoleFailures.push(String(text));
+  });
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedUrl) => {
+    diagnostics.pageFailures.push({ errorCode, errorDescription, url: validatedUrl });
+  });
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    diagnostics.pageFailures.push({ reason: details.reason, exitCode: details.exitCode });
+  });
+  localSession.webRequest.onErrorOccurred((details) => {
+    if (new URL(details.url).origin === appOrigin) {
+      diagnostics.requestFailures.push({ error: details.error, method: details.method, url: details.url });
+    }
+  });
+  localSession.webRequest.onBeforeRequest((details, callback) => {
+    if (details.resourceType === 'webSocket') diagnostics.websocketRequests.push(details.url);
+    callback({});
+  });
+
+  return diagnostics;
 }
 
 function createApplicationMenu() {
