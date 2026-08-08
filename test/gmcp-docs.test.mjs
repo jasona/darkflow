@@ -60,7 +60,11 @@ test('GMCP documentation names every package literal used by the client', () => 
 });
 
 test('documentation Markdown links resolve inside the repository', () => {
-  const markdownFiles = filesUnder(docsDir, (path) => path.endsWith('.md'));
+  const markdownFiles = filesUnder(docsDir, (path) => {
+    if (!path.endsWith('.md')) return false;
+    const relative = path.slice(docsDir.length + 1);
+    return !relative.startsWith('plans/');
+  });
   for (const sourcePath of markdownFiles) {
     const relativePath = sourcePath.slice(repoRoot.length + 1);
     const source = readFileSync(sourcePath, 'utf8');

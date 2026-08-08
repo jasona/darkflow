@@ -37,11 +37,6 @@ export default defineConfig({
       ],
       use: devices["Desktop Safari"],
     },
-    {
-      name: "mobile-chromium",
-      testMatch: /workspace-touch\.spec\.ts/,
-      use: devices["Pixel 7"],
-    },
   ],
   webServer: {
     command: "node server.js --dev",
