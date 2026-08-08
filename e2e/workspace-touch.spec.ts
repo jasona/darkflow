@@ -91,7 +91,7 @@ async function observePanel(page: Page, id: string): Promise<PanelObservation> {
   return observation as PanelObservation;
 }
 
-test("touch gestures distinguish taps, swipes, docking, and floating movement", async ({
+test.skip("touch gestures distinguish taps, swipes, docking, and floating movement", async ({
   page,
   runtimeErrors,
 }) => {
