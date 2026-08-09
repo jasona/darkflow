@@ -3644,7 +3644,7 @@ export const panelManager = {
       if (!data || !data.name) return;
       if (!Array.isArray(this.gmcpData.professions)) this.gmcpData.professions = [];
       const idx = this.gmcpData.professions.findIndex(p => p.name === data.name);
-      const entry = { name: data.name, points: data.value, max: data.valueMax };
+      const entry = { name: data.name, points: data.points, max: data.max };
       const panel = this.panels.professions;
       if (idx >= 0) {
         this.gmcpData.professions[idx] = entry;

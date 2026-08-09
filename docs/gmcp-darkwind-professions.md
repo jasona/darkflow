@@ -55,20 +55,19 @@ Full snapshot of all 11 profession skill levels (0-1000 each).
 
 Direction: `Server -> Client`
 
-Incremental delta for a single profession, sent directly to the acting player the instant `add_profession_point()` awards a point.
+Single-profession update for one profession, sent directly to the acting player the instant `add_profession_point()` awards a point. Same shape as a `List` entry.
 
 ### Schema
 
 ```json
-{ "name": "Blacksmithing", "value": 241, "valueWas": 240, "valueMax": 1000 }
+{ "name": "Blacksmithing", "points": 241, "max": 1000 }
 ```
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
 | `name` | string | Yes | Profession name; merge key against the cached list |
-| `value` | number | Yes | New skill point total |
-| `valueWas` | number | No | Prior skill point total; not currently used by the client |
-| `valueMax` | number | No | Skill cap; the client defaults to `1000` if omitted |
+| `points` | number | Yes | New skill point total |
+| `max` | number | No | Skill cap; the client defaults to `1000` if omitted |
 
 ### Client Behavior
 
@@ -89,5 +88,5 @@ PackageName JSONPayload
 Example:
 
 ```text
-Darkwind.Professions.Update {"name":"Blacksmithing","value":241,"valueWas":240,"valueMax":1000}
+Darkwind.Professions.Update {"name":"Blacksmithing","points":241,"max":1000}
 ```
