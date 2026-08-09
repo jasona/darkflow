@@ -432,6 +432,9 @@ callback survives.
 
 ### Step 10 - Compose the Session and enforce live-character ownership
 
+Detailed implementation plan:
+[`multi-connection-ui-phase-1-step-10-implementation-plan.md`](multi-connection-ui-phase-1-step-10-implementation-plan.md).
+
 **Files:** `client/runtime/session.ts`, `session-factory.ts`,
 `session-registry.ts`, `runtime-state.ts`, `test/session-runtime.test.mjs` (new)
 
