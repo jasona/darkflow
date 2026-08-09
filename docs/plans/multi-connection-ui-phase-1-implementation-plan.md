@@ -366,6 +366,9 @@ dispose-event cases pass under fake clocks.
 
 ### Step 7 - Implement the common validated per-session GMCP bus
 
+Detailed implementation plan:
+[`multi-connection-ui-phase-1-step-7-implementation-plan.md`](multi-connection-ui-phase-1-step-7-implementation-plan.md).
+
 **Files:** `client/gmcp/contracts/core.ts`, `char.ts`, `room.ts`, `comm.ts`,
 `validators.ts`, `bus.ts`, `frame.ts`, `test/session-gmcp-bus.test.mjs` (new)
 

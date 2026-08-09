@@ -21,6 +21,7 @@
     "client/storage/**/*.ts",
     "client/configuration/**/*.ts",
     "client/runtime/**/*.ts",
+    "client/gmcp/**/*.ts",
     "client/phase0/**/*.ts",
     "client/phase0/**/*.d.ts",
     "client/phase0/**/*.svelte"
