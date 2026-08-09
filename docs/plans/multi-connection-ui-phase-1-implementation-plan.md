@@ -409,6 +409,9 @@ package registered by current `public/js/*` consumers.
 
 ### Step 9 - Extract scoped transport and reconnect ownership
 
+Detailed implementation plan:
+[`multi-connection-ui-phase-1-step-9-implementation-plan.md`](multi-connection-ui-phase-1-step-9-implementation-plan.md).
+
 **Files:** `client/transport/types.ts`, `urls.ts`, `health.ts`,
 `connection.ts`, `reconnect.ts`, `test/session-transport.test.mjs`, existing
 transport browser fixtures

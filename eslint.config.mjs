@@ -10,6 +10,7 @@ const scriptFiles = [
   "client/storage/**/*.ts",
   "client/configuration/**/*.ts",
   "client/runtime/**/*.ts",
+  "client/transport/**/*.ts",
   "client/gmcp/**/*.ts",
   "client/phase0/**/*.{js,ts}",
   "e2e/**/*.ts",
