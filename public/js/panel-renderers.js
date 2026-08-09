@@ -1698,6 +1698,8 @@ export const panelRenderers = {
       bodyEl.innerHTML = '<div class="placeholder">Waiting for data...</div>';
       return;
     }
+    const placeholder = bodyEl.querySelector('.placeholder');
+    if (placeholder) placeholder.remove();
     list.forEach((prof) => {
       if (!renderProfessionRow(bodyEl, prof)) return;
       const id = 'prof-' + String(prof.name).toLowerCase();
