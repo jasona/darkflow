@@ -453,6 +453,9 @@ character ownership fails; and disposal is idempotent from every lifecycle state
 
 ### Step 11 - Adapt definition managers to profile/configuration snapshots
 
+Detailed implementation plan:
+[`multi-connection-ui-phase-1-step-11-implementation-plan.md`](multi-connection-ui-phase-1-step-11-implementation-plan.md).
+
 **Files:** `public/js/alias-manager.js`, `highlight-manager.js`,
 `function-manager.js`, key-mapping portions of `settings-manager.js`, new
 `public/js/session-compat/configuration.js`, existing/new manager tests

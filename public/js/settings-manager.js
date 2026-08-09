@@ -31,6 +31,11 @@ import {
   normalizeVisualEffectPreferences,
   VISUAL_EFFECT_OPTIONS,
 } from './visual-effects-settings.mjs';
+import {
+  getEffectiveDefinitions,
+  isConfigurationCompatActive,
+  replaceLocalDefinitions,
+} from './session-compat/configuration.js';
 
 const SETTINGS_STORAGE_KEY = 'darkwind-client-settings';
 const ALIAS_STORAGE_KEY = 'darkwind-client-aliases-v1';
@@ -203,6 +208,9 @@ export const settingsManager = {
   },
 
   get(key) {
+    if (key === 'keyMappings') {
+      return this._resolveKeyMappings();
+    }
     if (Object.prototype.hasOwnProperty.call(this._settings, key)) {
       return this._settings[key];
     }
@@ -220,7 +228,7 @@ export const settingsManager = {
       : null;
     this._draftSettings = {
       ...this._settings,
-      keyMappings: this._settings.keyMappings.map((mapping) => ({
+      keyMappings: this._resolveKeyMappings().map((mapping) => ({
         code: mapping.code || '',
         label: mapping.label || formatKeyCodeLabel(mapping.code || ''),
         legacyKey: mapping.legacyKey || '',
@@ -580,7 +588,14 @@ export const settingsManager = {
     this._applyingDraftChanges = true;
     try {
       this._syncDraftVariablesFromSteps();
-      this._applySettings(this._draftSettings);
+      if (isConfigurationCompatActive()) {
+        const draftKeyMappings = this._toBridgeKeyMappings(this._draftSettings.keyMappings);
+        replaceLocalDefinitions('keyMappings', draftKeyMappings);
+        const { keyMappings, ...otherDraftSettings } = this._draftSettings;
+        this._applySettings(otherDraftSettings);
+      } else {
+        this._applySettings(this._draftSettings);
+      }
       triggerManager.saveScope(this._triggerScopeKey, this._draftTriggerScope);
       timerManager.saveScope(this._timerScopeKey, this._draftTimerScope);
       functionManager.saveScope(this._functionScopeKey, this._draftFunctionScope);
@@ -1211,6 +1226,60 @@ export const settingsManager = {
         };
       })
       .filter(Boolean);
+  },
+
+  _resolveKeyMappings() {
+    if (isConfigurationCompatActive()) {
+      return getEffectiveDefinitions('keyMappings')
+        .filter(({ definition }) => definition.enabled !== false)
+        .map(({ definition }) => ({
+          code: definition.code || '',
+          label: definition.label || formatKeyCodeLabel(definition.code || ''),
+          legacyKey: definition.legacyKey || '',
+          command: definition.command,
+        }));
+    }
+    return this._settings.keyMappings;
+  },
+
+  _toBridgeKeyMappings(mappings) {
+    const normalized = this._normalizeKeyMappings(mappings);
+    const priorDefinitions = isConfigurationCompatActive()
+      ? getEffectiveDefinitions('keyMappings').map((entry) => entry.definition)
+      : [];
+    const priorByCode = new Map(
+      priorDefinitions.map((definition) => [definition.code.trim(), definition]),
+    );
+
+    // Reuse a prior definition's id only when its code matches exactly, never
+    // by array position - an index-based fallback can hand one row's stable
+    // id to an unrelated row whenever a save both removes a row and edits
+    // another row's code, producing duplicate ids across key mappings.
+    const usedIds = new Set();
+    let nextGeneratedIndex = 1;
+    const generateId = () => {
+      let candidate;
+      do {
+        candidate = `keymap-${nextGeneratedIndex}`;
+        nextGeneratedIndex += 1;
+      } while (usedIds.has(candidate));
+      return candidate;
+    };
+
+    return normalized.map((mapping) => {
+      const code = mapping.code.trim();
+      const prior = priorByCode.get(code);
+      const id = prior && prior.id ? prior.id : generateId();
+      usedIds.add(id);
+      return {
+        id,
+        enabled: true,
+        code: mapping.code,
+        label: mapping.label,
+        legacyKey: mapping.legacyKey,
+        command: mapping.command,
+      };
+    });
   },
 
   _createCheckboxRow(labelText, descriptionText, checked, onChange) {

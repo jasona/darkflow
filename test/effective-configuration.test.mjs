@@ -423,4 +423,81 @@ test("Effective configuration executes through Vite SSR", async (t) => {
     assert.equal(published.success, true);
     assert.equal(secondHeard, true);
   });
+
+  await t.test("replaceLocalDefinitions updates one character and notifies only that character", () => {
+    service.resetConfigurationSubscriptionsForTests();
+    const graph = buildMinimalGraph(ids);
+    const storage = createMemoryStorage();
+    repository.commit(storage, graph);
+
+    const notificationsByCharacter = new Map();
+    service.subscribe(graph.ids.characterAId, (nextSnapshot) => {
+      const list = notificationsByCharacter.get(graph.ids.characterAId) ?? [];
+      list.push(nextSnapshot);
+      notificationsByCharacter.set(graph.ids.characterAId, list);
+    });
+    service.subscribe(graph.ids.characterBId, (nextSnapshot) => {
+      const list = notificationsByCharacter.get(graph.ids.characterBId) ?? [];
+      list.push(nextSnapshot);
+      notificationsByCharacter.set(graph.ids.characterBId, list);
+    });
+
+    const nextAliases = [
+      {
+        id: "alias-local-a",
+        enabled: true,
+        trigger: "look",
+        description: "Local alias",
+        group: "",
+        isRegex: false,
+        ignoreCase: true,
+        steps: [{ type: "send_command", template: "look local" }],
+      },
+    ];
+
+    const replaced = service.replaceLocalDefinitions(
+      storage,
+      graph.ids.characterAId,
+      "aliases",
+      nextAliases,
+    );
+    assert.equal(replaced.success, true);
+    assert.equal(notificationsByCharacter.get(graph.ids.characterAId)?.length, 1);
+    assert.equal(notificationsByCharacter.get(graph.ids.characterBId), undefined);
+
+    const persisted = JSON.parse(storage.getItem(schema.SESSION_CORE_STORAGE_KEY));
+    assert.equal(
+      persisted.characterProfiles[graph.ids.characterAId].localDefinitions.aliases[0].steps[0]
+        .template,
+      "look local",
+    );
+    assert.deepEqual(persisted.characterProfiles[graph.ids.characterBId].localDefinitions.aliases, []);
+    assert.equal(
+      persisted.configurationSets[graph.ids.aliasSetAId].definitions[0].steps[0].template,
+      "score",
+    );
+  });
+
+  await t.test("replaceLocalDefinitions rejects unknown characters and missing state without writes", () => {
+    service.resetConfigurationSubscriptionsForTests();
+    const graph = buildMinimalGraph(ids);
+    const storage = createMemoryStorage();
+    repository.commit(storage, graph);
+
+    const missingId = ids.createCharacterProfileId(createSequentialUuidFactory("40000000-0000-4000-8000-"));
+    let notified = false;
+    service.subscribe(graph.ids.characterAId, () => {
+      notified = true;
+    });
+
+    const unknown = service.replaceLocalDefinitions(storage, missingId, "aliases", []);
+    assert.equal(unknown.success, false);
+    assert.equal(unknown.code, "unknown-character");
+    assert.equal(notified, false);
+
+    storage.removeItem(schema.SESSION_CORE_STORAGE_KEY);
+    const missingState = service.replaceLocalDefinitions(storage, graph.ids.characterAId, "aliases", []);
+    assert.equal(missingState.success, false);
+    assert.equal(missingState.code, "missing-state");
+  });
 });

@@ -1,5 +1,12 @@
 import { dom } from './state.js';
 import { getAutomationScriptDiagnostics } from './automation-script-core.mjs';
+import {
+  getActiveCharacterProfileId,
+  getEffectiveDefinitions,
+  isConfigurationCompatActive,
+  replaceLocalDefinitions,
+  setLocalDefinitionEnabledByIdentity,
+} from './session-compat/configuration.js';
 
 const FUNCTION_STORAGE_KEY = 'darkwind-client-functions-v1';
 const MAX_FUNCTION_DEPTH = 10;
@@ -47,6 +54,18 @@ function normalizeScope(scope) {
     ? scope.functions.map(normalizeFunction).filter(Boolean)
     : [];
   return { functions };
+}
+
+function functionIdentityKey(name) {
+  return normalizeFunctionName(name);
+}
+
+function getEffectiveFunctionEntries() {
+  return getEffectiveDefinitions('functions');
+}
+
+function getEffectiveFunctionDefinitions() {
+  return getEffectiveFunctionEntries().map((entry) => cloneFunction(entry.definition));
 }
 
 function normalizeData(data) {
@@ -97,6 +116,9 @@ export const functionManager = {
   },
 
   getActiveScopeKey() {
+    if (isConfigurationCompatActive()) {
+      return getActiveCharacterProfileId();
+    }
     const host = normalizeWhitespace(dom.host && dom.host.value ? dom.host.value : '').toLowerCase() || 'default';
     const port = normalizeWhitespace(dom.port && dom.port.value ? dom.port.value : '') || '4242';
     const sel = dom.protocolSelect && dom.protocolSelect.value;
@@ -112,6 +134,26 @@ export const functionManager = {
   },
 
   getScopeSnapshot(scopeKey = this.getActiveScopeKey()) {
+    if (isConfigurationCompatActive()) {
+      return {
+        functions: getEffectiveFunctionDefinitions(),
+      };
+    }
+    const scope = normalizeScope(this._ensureScope(scopeKey));
+    return {
+      functions: scope.functions.map(cloneFunction),
+    };
+  },
+
+  getScopeSnapshotWithSource(scopeKey = this.getActiveScopeKey()) {
+    if (isConfigurationCompatActive()) {
+      return {
+        functions: getEffectiveFunctionEntries().map((entry) => ({
+          ...cloneFunction(entry.definition),
+          source: entry.source,
+        })),
+      };
+    }
     const scope = normalizeScope(this._ensureScope(scopeKey));
     return {
       functions: scope.functions.map(cloneFunction),
@@ -119,6 +161,11 @@ export const functionManager = {
   },
 
   saveScope(scopeKey, scope) {
+    if (isConfigurationCompatActive()) {
+      replaceLocalDefinitions('functions', normalizeScope(scope).functions);
+      emitFunctionDataChanged({ scopeKey });
+      return;
+    }
     this._data.scopes[scopeKey] = normalizeScope(scope);
     this._save({ scopeKey });
   },
@@ -137,18 +184,66 @@ export const functionManager = {
   findFunctionById(id, scopeKey = this.getActiveScopeKey()) {
     const key = String(id || '');
     if (!key) return null;
+    if (isConfigurationCompatActive()) {
+      const entry = getEffectiveFunctionEntries().find((item) => item.definition.id === key);
+      return entry ? cloneFunction(entry.definition) : null;
+    }
     return this._ensureScope(scopeKey).functions.find((fn) => fn.id === key) || null;
   },
 
+  findFunctionByIdWithSource(id, scopeKey = this.getActiveScopeKey()) {
+    const key = String(id || '');
+    if (!key) return null;
+    if (isConfigurationCompatActive()) {
+      const entry = getEffectiveFunctionEntries().find((item) => item.definition.id === key);
+      if (!entry) return null;
+      return {
+        ...cloneFunction(entry.definition),
+        source: entry.source,
+      };
+    }
+    const fn = this.findFunctionById(id, scopeKey);
+    return fn ? cloneFunction(fn) : null;
+  },
+
   findFunctionByName(name, scopeKey = this.getActiveScopeKey()) {
-    const normalized = normalizeFunctionName(name);
+    const normalized = functionIdentityKey(name);
     if (!normalized) return null;
+    if (isConfigurationCompatActive()) {
+      const entry = getEffectiveFunctionEntries().find(
+        (item) => functionIdentityKey(item.definition.name) === normalized,
+      );
+      return entry ? cloneFunction(entry.definition) : null;
+    }
     return this._ensureScope(scopeKey).functions.find((fn) => fn.name === normalized) || null;
+  },
+
+  findFunctionByNameWithSource(name, scopeKey = this.getActiveScopeKey()) {
+    const normalized = functionIdentityKey(name);
+    if (!normalized) return null;
+    if (isConfigurationCompatActive()) {
+      const entry = getEffectiveFunctionEntries().find(
+        (item) => functionIdentityKey(item.definition.name) === normalized,
+      );
+      if (!entry) return null;
+      return {
+        ...cloneFunction(entry.definition),
+        source: entry.source,
+      };
+    }
+    const fn = this.findFunctionByName(name, scopeKey);
+    return fn ? cloneFunction(fn) : null;
   },
 
   setEnabledById(id, enabled, scopeKey = this.getActiveScopeKey()) {
     const fn = this.findFunctionById(id, scopeKey);
     if (!fn) return { target: null, enabled: null };
+    if (isConfigurationCompatActive()) {
+      const nextEnabled = enabled !== false;
+      const changed = setLocalDefinitionEnabledByIdentity('functions', functionIdentityKey(fn.name), nextEnabled);
+      if (changed) emitFunctionDataChanged({ scopeKey });
+      return { target: fn, enabled: changed ? nextEnabled : fn.enabled };
+    }
     fn.enabled = enabled !== false;
     this._save({ scopeKey });
     return { target: fn, enabled: fn.enabled };
@@ -157,6 +252,12 @@ export const functionManager = {
   setEnabledByTarget(name, enabled, scopeKey = this.getActiveScopeKey()) {
     const fn = this.findFunctionByName(name, scopeKey);
     if (!fn) return { target: null, enabled: null };
+    if (isConfigurationCompatActive()) {
+      const nextEnabled = enabled !== false;
+      const changed = setLocalDefinitionEnabledByIdentity('functions', functionIdentityKey(name), nextEnabled);
+      if (changed) emitFunctionDataChanged({ scopeKey });
+      return { target: fn, enabled: changed ? nextEnabled : fn.enabled };
+    }
     fn.enabled = enabled !== false;
     this._save({ scopeKey });
     return { target: fn, enabled: fn.enabled };
@@ -165,7 +266,13 @@ export const functionManager = {
   toggleEnabledById(id, scopeKey = this.getActiveScopeKey()) {
     const fn = this.findFunctionById(id, scopeKey);
     if (!fn) return { target: null, enabled: null };
-    fn.enabled = fn.enabled === false;
+    const nextEnabled = fn.enabled === false;
+    if (isConfigurationCompatActive()) {
+      const changed = setLocalDefinitionEnabledByIdentity('functions', functionIdentityKey(fn.name), nextEnabled);
+      if (changed) emitFunctionDataChanged({ scopeKey });
+      return { target: fn, enabled: changed ? nextEnabled : fn.enabled };
+    }
+    fn.enabled = nextEnabled;
     this._save({ scopeKey });
     return { target: fn, enabled: fn.enabled };
   },
@@ -173,7 +280,13 @@ export const functionManager = {
   toggleEnabledByTarget(name, scopeKey = this.getActiveScopeKey()) {
     const fn = this.findFunctionByName(name, scopeKey);
     if (!fn) return { target: null, enabled: null };
-    fn.enabled = fn.enabled === false;
+    const nextEnabled = fn.enabled === false;
+    if (isConfigurationCompatActive()) {
+      const changed = setLocalDefinitionEnabledByIdentity('functions', functionIdentityKey(name), nextEnabled);
+      if (changed) emitFunctionDataChanged({ scopeKey });
+      return { target: fn, enabled: changed ? nextEnabled : fn.enabled };
+    }
+    fn.enabled = nextEnabled;
     this._save({ scopeKey });
     return { target: fn, enabled: fn.enabled };
   },

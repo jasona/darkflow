@@ -1,10 +1,12 @@
 import type { ApplicationStateV1 } from "../model/profiles.ts";
 import type {
   AliasDefinition,
+  ConfigKind,
   ConfigurationSet,
   FunctionDefinition,
   HighlightDefinition,
   KeyMappingDefinition,
+  LocalDefinitions,
   TimerDefinition,
   TriggerDefinition,
 } from "../model/configuration.ts";
@@ -45,6 +47,15 @@ export type PublishConfigurationSetResult =
         | "stale-revision"
         | "validation-failed"
         | "storage-failed";
+      message: string;
+    };
+
+/** Result of replacing one character's local definitions for a single kind. */
+export type ReplaceLocalDefinitionsResult =
+  | { success: true }
+  | {
+      success: false;
+      code: "missing-state" | "unknown-character" | "validation-failed" | "storage-failed";
       message: string;
     };
 
@@ -141,22 +152,85 @@ export function publishConfigurationSet(
   return { success: true };
 }
 
+/** Replaces one character's local definitions for a single kind, then notifies that character only. */
+export function replaceLocalDefinitions<K extends ConfigKind>(
+  storage: StorageLike,
+  characterProfileId: CharacterProfileId,
+  kind: K,
+  definitions: LocalDefinitions[K],
+): ReplaceLocalDefinitionsResult {
+  const readResult = readState(storage);
+  if (!readResult.success || readResult.data === undefined) {
+    return {
+      success: false,
+      code: "missing-state",
+      message: "Phase 1 session graph is not present in storage.",
+    };
+  }
+
+  const state: ApplicationStateV1 = readResult.data;
+  const character = state.characterProfiles[characterProfileId];
+  if (character === undefined) {
+    return {
+      success: false,
+      code: "unknown-character",
+      message: "Character profile is not present in the application graph.",
+    };
+  }
+
+  const nextState: ApplicationStateV1 = {
+    ...state,
+    characterProfiles: {
+      ...state.characterProfiles,
+      [characterProfileId]: {
+        ...character,
+        localDefinitions: {
+          ...character.localDefinitions,
+          [kind]: structuredClone(definitions),
+        },
+      },
+    },
+  };
+
+  const commitResult = commit(storage, nextState);
+  if (!commitResult.success) {
+    return {
+      success: false,
+      code: commitResult.code,
+      message: commitResult.message,
+    };
+  }
+
+  notifyOneSubscriber(nextState, characterProfileId);
+  return { success: true };
+}
+
+function notifyOneSubscriber(
+  state: ApplicationStateV1,
+  characterProfileId: CharacterProfileId,
+): void {
+  const listeners = subscribers.get(characterProfileId);
+  if (listeners === undefined) {
+    return;
+  }
+
+  const resolved = resolveEffectiveConfiguration(state, characterProfileId);
+  if (!resolved.success || resolved.data === undefined) {
+    return;
+  }
+
+  const listenerCopy = [...listeners];
+  for (const listener of listenerCopy) {
+    try {
+      listener(resolved.data);
+    } catch {
+      /* isolate throwing listeners, mirroring gmcp.dispatch */
+    }
+  }
+}
+
 function notifySubscribers(state: ApplicationStateV1): void {
-  const subscriberEntries = [...subscribers.entries()];
-
-  for (const [characterProfileId, listeners] of subscriberEntries) {
-    const resolved = resolveEffectiveConfiguration(state, characterProfileId);
-    if (!resolved.success || resolved.data === undefined) {
-      continue;
-    }
-
-    const listenerCopy = [...listeners];
-    for (const listener of listenerCopy) {
-      try {
-        listener(resolved.data);
-      } catch {
-        /* isolate throwing listeners, mirroring gmcp.dispatch */
-      }
-    }
+  for (const [characterProfileId] of subscribers.entries()) {
+    notifyOneSubscriber(state, characterProfileId);
   }
 }

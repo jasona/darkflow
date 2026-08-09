@@ -5,6 +5,15 @@ import {
 } from './alias-expression-core.mjs';
 import { getAutomationScriptDiagnostics } from './automation-script-core.mjs';
 import { getGmcpVariables } from './gmcp-variables.js';
+import {
+  getActiveCharacterProfileId,
+  getEffectiveDefinitions,
+  isConfigurationCompatActive,
+  removeLocalDefinitionByIdentity,
+  replaceLocalDefinitions,
+  setLocalDefinitionEnabledByIdentity,
+  upsertLocalDefinitionByIdentity,
+} from './session-compat/configuration.js';
 
 const ALIAS_STORAGE_KEY = 'darkwind-client-aliases-v1';
 const MAX_ALIAS_DEPTH = 10;
@@ -203,6 +212,25 @@ function normalizeScope(scope) {
   };
 }
 
+function aliasIdentityKey(trigger) {
+  return normalizeWhitespace(trigger).toLowerCase();
+}
+
+function cloneAliasDefinition(alias) {
+  return {
+    ...alias,
+    steps: alias.steps.map((step) => ({ ...step })),
+  };
+}
+
+function getEffectiveAliasEntries() {
+  return getEffectiveDefinitions('aliases');
+}
+
+function getEffectiveAliasDefinitions() {
+  return getEffectiveAliasEntries().map((entry) => cloneAliasDefinition(entry.definition));
+}
+
 function normalizeData(data) {
   const scopes = {};
   if (data && typeof data === 'object' && data.scopes && typeof data.scopes === 'object') {
@@ -286,6 +314,9 @@ export const aliasManager = {
   },
 
   getActiveScopeKey() {
+    if (isConfigurationCompatActive()) {
+      return getActiveCharacterProfileId();
+    }
     const host = normalizeWhitespace(dom.host && dom.host.value ? dom.host.value : '').toLowerCase() || 'default';
     const port = normalizeWhitespace(dom.port && dom.port.value ? dom.port.value : '') || '4242';
     // Preserve existing scope keys: secure (wss/telnets) → 'wss', plain → 'ws'.
@@ -302,17 +333,45 @@ export const aliasManager = {
   },
 
   getScopeSnapshot(scopeKey = this.getActiveScopeKey()) {
+    if (isConfigurationCompatActive()) {
+      return {
+        aliases: getEffectiveAliasDefinitions(),
+        variables: { ...this._ensureScope(scopeKey).variables },
+      };
+    }
     const scope = normalizeScope(this._ensureScope(scopeKey));
     return {
-      aliases: scope.aliases.map((alias) => ({
-        ...alias,
-        steps: alias.steps.map((step) => ({ ...step })),
-      })),
+      aliases: scope.aliases.map((alias) => cloneAliasDefinition(alias)),
+      variables: { ...scope.variables },
+    };
+  },
+
+  getScopeSnapshotWithSource(scopeKey = this.getActiveScopeKey()) {
+    if (isConfigurationCompatActive()) {
+      const entries = getEffectiveAliasEntries();
+      return {
+        aliases: entries.map((entry) => ({
+          ...cloneAliasDefinition(entry.definition),
+          source: entry.source,
+        })),
+        variables: { ...this._ensureScope(scopeKey).variables },
+      };
+    }
+    const scope = normalizeScope(this._ensureScope(scopeKey));
+    return {
+      aliases: scope.aliases.map((alias) => cloneAliasDefinition(alias)),
       variables: { ...scope.variables },
     };
   },
 
   saveScope(scopeKey, scope) {
+    if (isConfigurationCompatActive()) {
+      replaceLocalDefinitions('aliases', normalizeScope(scope).aliases);
+      const existing = this._ensureScope(scopeKey);
+      existing.variables = normalizeVariables(scope && scope.variables);
+      this._save({ scopeKey });
+      return;
+    }
     this._data.scopes[scopeKey] = normalizeScope(scope);
     this._save({ scopeKey });
   },
@@ -361,16 +420,42 @@ export const aliasManager = {
   },
 
   findAliasByTrigger(trigger, scopeKey = this.getActiveScopeKey()) {
-    const normalizedTrigger = normalizeWhitespace(trigger).toLowerCase();
+    const normalizedTrigger = aliasIdentityKey(trigger);
     if (!normalizedTrigger) return null;
+    if (isConfigurationCompatActive()) {
+      const entry = getEffectiveAliasEntries().find(
+        (item) => aliasIdentityKey(item.definition.trigger) === normalizedTrigger,
+      );
+      return entry ? cloneAliasDefinition(entry.definition) : null;
+    }
     return this._ensureScope(scopeKey).aliases.find((alias) => (
-      normalizeWhitespace(alias.trigger).toLowerCase() === normalizedTrigger
+      aliasIdentityKey(alias.trigger) === normalizedTrigger
     )) || null;
+  },
+
+  findAliasByTriggerWithSource(trigger, scopeKey = this.getActiveScopeKey()) {
+    const normalizedTrigger = aliasIdentityKey(trigger);
+    if (!normalizedTrigger) return null;
+    if (isConfigurationCompatActive()) {
+      const entry = getEffectiveAliasEntries().find(
+        (item) => aliasIdentityKey(item.definition.trigger) === normalizedTrigger,
+      );
+      if (!entry) return null;
+      return {
+        ...cloneAliasDefinition(entry.definition),
+        source: entry.source,
+      };
+    }
+    const alias = this.findAliasByTrigger(trigger, scopeKey);
+    return alias ? cloneAliasDefinition(alias) : null;
   },
 
   listCompletionTriggers(scopeKey = this.getActiveScopeKey()) {
     const seen = new Set();
-    return this._ensureScope(scopeKey).aliases
+    const aliases = isConfigurationCompatActive()
+      ? getEffectiveAliasDefinitions()
+      : this._ensureScope(scopeKey).aliases;
+    return aliases
       .filter((alias) => alias.enabled !== false && !alias.isRegex)
       .map((alias) => normalizeWhitespace(alias.trigger))
       .filter(Boolean)
@@ -395,7 +480,6 @@ export const aliasManager = {
       }
     }
 
-    const scope = this._ensureScope(scopeKey);
     const existing = this.findAliasByTrigger(normalizedTrigger, scopeKey);
     const normalizedTemplate = String(template || '').trim();
     const alias = existing || {
@@ -412,15 +496,22 @@ export const aliasManager = {
     alias.ignoreCase = ignoreCase;
     alias.steps = [{ type: 'send_command', template: normalizedTemplate }];
 
-    if (!existing) {
-      scope.aliases.push(alias);
+    if (isConfigurationCompatActive()) {
+      const normalizedAlias = normalizeAlias(alias);
+      if (!normalizedAlias) {
+        return { alias: null, error: 'Alias trigger is required.' };
+      }
+      upsertLocalDefinitionByIdentity('aliases', normalizedAlias);
+      emitAliasDataChanged({ scopeKey });
+    } else {
+      const scope = this._ensureScope(scopeKey);
+      if (!existing) {
+        scope.aliases.push(alias);
+      }
+      this._save({ scopeKey });
     }
 
-    this._save({ scopeKey });
-    const snapshot = {
-      ...alias,
-      steps: alias.steps.map((step) => ({ ...step })),
-    };
+    const snapshot = cloneAliasDefinition(alias);
 
     return {
       ...snapshot,
@@ -430,12 +521,18 @@ export const aliasManager = {
   },
 
   removeAliasByTrigger(trigger, scopeKey = this.getActiveScopeKey()) {
-    const normalizedTrigger = normalizeWhitespace(trigger).toLowerCase();
+    const normalizedTrigger = aliasIdentityKey(trigger);
     if (!normalizedTrigger) return false;
+
+    if (isConfigurationCompatActive()) {
+      const removed = removeLocalDefinitionByIdentity('aliases', normalizedTrigger);
+      if (removed) emitAliasDataChanged({ scopeKey });
+      return removed;
+    }
 
     const scope = this._ensureScope(scopeKey);
     const nextAliases = scope.aliases.filter((alias) => (
-      normalizeWhitespace(alias.trigger).toLowerCase() !== normalizedTrigger
+      aliasIdentityKey(alias.trigger) !== normalizedTrigger
     ));
 
     if (nextAliases.length === scope.aliases.length) return false;
@@ -447,6 +544,12 @@ export const aliasManager = {
   setEnabledByTarget(trigger, enabled, scopeKey = this.getActiveScopeKey()) {
     const alias = this.findAliasByTrigger(trigger, scopeKey);
     if (!alias) return { target: null, enabled: null };
+    if (isConfigurationCompatActive()) {
+      const nextEnabled = enabled !== false;
+      const changed = setLocalDefinitionEnabledByIdentity('aliases', aliasIdentityKey(trigger), nextEnabled);
+      if (changed) emitAliasDataChanged({ scopeKey });
+      return { target: alias, enabled: changed ? nextEnabled : alias.enabled };
+    }
     alias.enabled = enabled !== false;
     this._save({ scopeKey });
     return { target: alias, enabled: alias.enabled };
@@ -455,12 +558,37 @@ export const aliasManager = {
   findAliasById(id, scopeKey = this.getActiveScopeKey()) {
     const key = String(id || '');
     if (!key) return null;
+    if (isConfigurationCompatActive()) {
+      const entry = getEffectiveAliasEntries().find((item) => item.definition.id === key);
+      return entry ? cloneAliasDefinition(entry.definition) : null;
+    }
     return this._ensureScope(scopeKey).aliases.find((alias) => alias.id === key) || null;
+  },
+
+  findAliasByIdWithSource(id, scopeKey = this.getActiveScopeKey()) {
+    const key = String(id || '');
+    if (!key) return null;
+    if (isConfigurationCompatActive()) {
+      const entry = getEffectiveAliasEntries().find((item) => item.definition.id === key);
+      if (!entry) return null;
+      return {
+        ...cloneAliasDefinition(entry.definition),
+        source: entry.source,
+      };
+    }
+    const alias = this.findAliasById(id, scopeKey);
+    return alias ? cloneAliasDefinition(alias) : null;
   },
 
   setEnabledById(id, enabled, scopeKey = this.getActiveScopeKey()) {
     const alias = this.findAliasById(id, scopeKey);
     if (!alias) return { target: null, enabled: null };
+    if (isConfigurationCompatActive()) {
+      const nextEnabled = enabled !== false;
+      const changed = setLocalDefinitionEnabledByIdentity('aliases', aliasIdentityKey(alias.trigger), nextEnabled);
+      if (changed) emitAliasDataChanged({ scopeKey });
+      return { target: alias, enabled: changed ? nextEnabled : alias.enabled };
+    }
     alias.enabled = enabled !== false;
     this._save({ scopeKey });
     return { target: alias, enabled: alias.enabled };
@@ -469,7 +597,13 @@ export const aliasManager = {
   toggleEnabledById(id, scopeKey = this.getActiveScopeKey()) {
     const alias = this.findAliasById(id, scopeKey);
     if (!alias) return { target: null, enabled: null };
-    alias.enabled = alias.enabled === false;
+    const nextEnabled = alias.enabled === false;
+    if (isConfigurationCompatActive()) {
+      const changed = setLocalDefinitionEnabledByIdentity('aliases', aliasIdentityKey(alias.trigger), nextEnabled);
+      if (changed) emitAliasDataChanged({ scopeKey });
+      return { target: alias, enabled: changed ? nextEnabled : alias.enabled };
+    }
+    alias.enabled = nextEnabled;
     this._save({ scopeKey });
     return { target: alias, enabled: alias.enabled };
   },
@@ -477,7 +611,13 @@ export const aliasManager = {
   toggleEnabledByTarget(trigger, scopeKey = this.getActiveScopeKey()) {
     const alias = this.findAliasByTrigger(trigger, scopeKey);
     if (!alias) return { target: null, enabled: null };
-    alias.enabled = alias.enabled === false;
+    const nextEnabled = alias.enabled === false;
+    if (isConfigurationCompatActive()) {
+      const changed = setLocalDefinitionEnabledByIdentity('aliases', aliasIdentityKey(trigger), nextEnabled);
+      if (changed) emitAliasDataChanged({ scopeKey });
+      return { target: alias, enabled: changed ? nextEnabled : alias.enabled };
+    }
+    alias.enabled = nextEnabled;
     this._save({ scopeKey });
     return { target: alias, enabled: alias.enabled };
   },
@@ -533,7 +673,10 @@ export const aliasManager = {
   },
 
   matchAlias(rawLine, scopeKey = this.getActiveScopeKey()) {
-    return this.matchAliasInAliases(rawLine, this._ensureScope(scopeKey).aliases);
+    const aliases = isConfigurationCompatActive()
+      ? getEffectiveAliasDefinitions()
+      : this._ensureScope(scopeKey).aliases;
+    return this.matchAliasInAliases(rawLine, aliases);
   },
 
   resolveTemplate(template, context) {
