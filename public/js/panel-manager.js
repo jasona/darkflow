@@ -2,7 +2,7 @@ import { gmcp } from './gmcp.js';
 import { state as appState } from './state.js';
 import { PANEL_DEFS, PANEL_STORAGE_KEY } from './panel-defs.js';
 import { openPaneFontSettings } from './pane-settings.js';
-import { panelRenderers, updateCyberwareModalDetails, updateCyberwareModalImage } from './panel-renderers.js';
+import { panelRenderers, updateCyberwareModalDetails, updateCyberwareModalImage, renderProfessionRow } from './panel-renderers.js';
 import {
   MAP_ZOOM_LEVELS,
   formatMapZoom,
@@ -3632,6 +3632,27 @@ export const panelManager = {
     gmcp.on('Darkwind.Cyberware.Image', (data) => {
       if (!data || !data.id || !data.url) return;
       updateCyberwareModalImage(data.id, data.url);
+    });
+
+    gmcp.on('Darkwind.Professions.List', (data) => {
+      this.gmcpData.professions = data && Array.isArray(data.professions)
+        ? data.professions : [];
+      this._renderPanel('professions');
+    });
+
+    gmcp.on('Darkwind.Professions.Update', (data) => {
+      if (!data || !data.name) return;
+      if (!Array.isArray(this.gmcpData.professions)) this.gmcpData.professions = [];
+      const idx = this.gmcpData.professions.findIndex(p => p.name === data.name);
+      const entry = { name: data.name, points: data.points, max: data.max };
+      const panel = this.panels.professions;
+      if (idx >= 0) {
+        this.gmcpData.professions[idx] = entry;
+        if (panel) renderProfessionRow(panel.bodyEl, entry);
+      } else {
+        this.gmcpData.professions.push(entry);
+        this._renderPanel('professions'); // new row needs full layout/order pass
+      }
     });
 
     gmcp.on('Darkwind.Char.Avatar', (data) => {
