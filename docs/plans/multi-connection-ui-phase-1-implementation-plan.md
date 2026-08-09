@@ -345,6 +345,9 @@ sharing runtime state.
 
 ### Step 6 - Add session event envelopes and resource scopes
 
+Detailed implementation plan:
+[`multi-connection-ui-phase-1-step-6-implementation-plan.md`](multi-connection-ui-phase-1-step-6-implementation-plan.md).
+
 **Files:** `client/runtime/events.ts`, `event-bus.ts`, `resource-scope.ts`,
 `diagnostics.ts`, `test/session-lifecycle-primitives.test.mjs` (new)
 
