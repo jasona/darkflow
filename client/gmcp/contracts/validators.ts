@@ -23,6 +23,27 @@ import type {
   CommChannelState,
 } from "./comm.ts";
 import type { RoomAddPlayer, RoomInfo, RoomPlayers, RoomRemovePlayer } from "./room.ts";
+import type { DarkwindClientNaws, DarkwindSessionRecovered } from "./darkwind-client.ts";
+import type {
+  DarkwindIdeOpen,
+  DarkwindIdeOpenChunk,
+  DarkwindIdeOpenFinish,
+  DarkwindIdeOpenStart,
+  DarkwindIdeSaveResult,
+} from "./darkwind-ide.ts";
+import type {
+  MapData2Area,
+  MapData2BrowseArea,
+  MapData2Current,
+  MapData2Error,
+  MapData2Reset,
+  MapData2Update,
+} from "./darkwind-map-data-v2.ts";
+import type {
+  DarkwindWindowClose,
+  DarkwindWindowOpen,
+  DarkwindWindowUpdate,
+} from "./darkwind-window.ts";
 
 export const validateCoreSupports = typia.createValidate<CoreSupportsPayload>();
 export const validateCharVitals = typia.createValidate<CharVitals>();
@@ -45,6 +66,22 @@ export const validateCommChannelMessage = typia.createValidate<CommChannelMessag
 export const validateCommChannelList = typia.createValidate<CommChannelList>();
 export const validateCommChannelPlayers = typia.createValidate<CommChannelPlayers>();
 export const validateCommChannelState = typia.createValidate<CommChannelState>();
+export const validateDarkwindWindowOpen = typia.createValidate<DarkwindWindowOpen>();
+export const validateDarkwindWindowUpdate = typia.createValidate<DarkwindWindowUpdate>();
+export const validateDarkwindWindowClose = typia.createValidate<DarkwindWindowClose>();
+export const validateDarkwindIdeOpen = typia.createValidate<DarkwindIdeOpen>();
+export const validateDarkwindIdeOpenStart = typia.createValidate<DarkwindIdeOpenStart>();
+export const validateDarkwindIdeOpenChunk = typia.createValidate<DarkwindIdeOpenChunk>();
+export const validateDarkwindIdeOpenFinish = typia.createValidate<DarkwindIdeOpenFinish>();
+export const validateDarkwindIdeSaveResult = typia.createValidate<DarkwindIdeSaveResult>();
+export const validateMapData2Current = typia.createValidate<MapData2Current>();
+export const validateMapData2Area = typia.createValidate<MapData2Area>();
+export const validateMapData2Update = typia.createValidate<MapData2Update>();
+export const validateMapData2Error = typia.createValidate<MapData2Error>();
+export const validateMapData2BrowseArea = typia.createValidate<MapData2BrowseArea>();
+export const validateMapData2Reset = typia.createValidate<MapData2Reset>();
+export const validateDarkwindClientNaws = typia.createValidate<DarkwindClientNaws>();
+export const validateDarkwindSessionRecovered = typia.createValidate<DarkwindSessionRecovered>();
 
 /** Typia validator invoked by canonical inbound package name. */
 export type GmcpPayloadValidator = (input: unknown) => typia.IValidation<unknown>;
@@ -77,6 +114,21 @@ const PACKAGE_VALIDATORS: Record<string, GmcpPayloadValidator> = {
   [canonicalPackageName("Comm.Channel.Players")]: validateCommChannelPlayers,
   [canonicalPackageName("Comm.Channel.Start")]: validateCommChannelState,
   [canonicalPackageName("Comm.Channel.End")]: validateCommChannelState,
+  [canonicalPackageName("Darkwind.Window.Open")]: validateDarkwindWindowOpen,
+  [canonicalPackageName("Darkwind.Window.Update")]: validateDarkwindWindowUpdate,
+  [canonicalPackageName("Darkwind.Window.Close")]: validateDarkwindWindowClose,
+  [canonicalPackageName("Darkwind.IDE.Open")]: validateDarkwindIdeOpen,
+  [canonicalPackageName("Darkwind.IDE.OpenStart")]: validateDarkwindIdeOpenStart,
+  [canonicalPackageName("Darkwind.IDE.OpenChunk")]: validateDarkwindIdeOpenChunk,
+  [canonicalPackageName("Darkwind.IDE.OpenFinish")]: validateDarkwindIdeOpenFinish,
+  [canonicalPackageName("Darkwind.IDE.SaveResult")]: validateDarkwindIdeSaveResult,
+  [canonicalPackageName("Darkwind.MapData2.Current")]: validateMapData2Current,
+  [canonicalPackageName("Darkwind.MapData2.Area")]: validateMapData2Area,
+  [canonicalPackageName("Darkwind.MapData2.Update")]: validateMapData2Update,
+  [canonicalPackageName("Darkwind.MapData2.Error")]: validateMapData2Error,
+  [canonicalPackageName("Darkwind.MapData2.BrowseArea")]: validateMapData2BrowseArea,
+  [canonicalPackageName("Darkwind.MapData2.Reset")]: validateMapData2Reset,
+  [canonicalPackageName("Darkwind.Session.Recovered")]: validateDarkwindSessionRecovered,
 };
 
 /** Returns the structural validator for a canonical package name, if modeled. */
@@ -86,3 +138,73 @@ export function lookupGmcpValidator(packageName: string): GmcpPayloadValidator |
 
 /** Canonical inbound package names with registered validators. */
 export const modeledGmcpPackageNames = Object.keys(PACKAGE_VALIDATORS);
+
+/** Canonical package names with no inbound validator; legacy passthrough until Phase 2 ports. */
+export const unmodeledGmcpPackageNames: readonly string[] = [
+  "Core.Hello",
+  "Core.Ping",
+  "Game",
+  "Group",
+  "Darkwind.Char.Avatar",
+  "Darkwind.Combat.State",
+  "Darkwind.Combat.Events",
+  "Darkwind.Combat.Event",
+  "Darkwind.Tutorial.State",
+  "Darkwind.Tutorial.Control",
+  "Darkwind.Tutorial.Action",
+  "Darkwind.Tutorial.Resync",
+  "Darkwind.Visual.State",
+  "Darkwind.Visual.Events",
+  "Darkwind.Visual.Event",
+  "Darkwind.Visual.Preview",
+  "Darkwind.Room.Image",
+  "Darkwind.Divine",
+  "Darkwind.Sky",
+  "Darkwind.GuildVitals",
+  "Darkwind.XPMon",
+  "Darkwind.Snoop.Open",
+  "Darkwind.Snoop.Append",
+  "Darkwind.Snoop.Status",
+  "Darkwind.Snoop.Close",
+  "Darkwind.Snoop.Command",
+  "Darkwind.Snoop.Stop",
+  "Darkwind.Snoop.Closed",
+  "Darkwind.Completion.Request",
+  "Darkwind.Completion.Result",
+  "Darkwind.Quests.List",
+  "Darkwind.Quests.Active",
+  "Darkwind.Quests.Update",
+  "Darkwind.Quests.Complete",
+  "Darkwind.Achievements.List",
+  "Darkwind.Achievements.Update",
+  "Darkwind.Announcements.List",
+  "Darkwind.Announcements.New",
+  "Darkwind.Announcements.Update",
+  "Darkwind.Announcements.State",
+  "Darkwind.Announcements.MarkRead",
+  "Darkwind.Giphy.Show",
+  "Darkwind.Sound",
+  "Darkwind.Broadcast.Show",
+  "Darkwind.LinuxRescue.Open",
+  "Darkwind.Lag.Get",
+  "Darkwind.Lag.Status",
+  "Darkwind.Fishing.Open",
+  "Darkwind.Fishing.Cast",
+  "Darkwind.Fishing.Bite",
+  "Darkwind.Fishing.Hook",
+  "Darkwind.Fishing.Fight",
+  "Darkwind.Fishing.Result",
+  "Darkwind.Fishing.Caught",
+  "Darkwind.Fishing.Escaped",
+  "Darkwind.Fishing.Art",
+  "Darkwind.Fishing.Cancel",
+  "Darkwind.Fishing.End",
+  "Darkwind.Cyberware.List",
+  "Darkwind.Cyberware.Details",
+  "Darkwind.Cyberware.Image",
+  "Darkwind.StreetSamurai",
+  "Darkwind.Room.Playlist.State",
+  "Darkwind.Room.Playlist.Open",
+  "Darkwind.Room.Playlist.Action",
+  "Darkwind.Room.Playlist.Report",
+];

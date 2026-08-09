@@ -387,6 +387,9 @@ in development and production.
 
 ### Step 8 - Add the Phase 1 Darkwind protocol catalog and legacy inventory
 
+Detailed implementation plan:
+[`multi-connection-ui-phase-1-step-8-implementation-plan.md`](multi-connection-ui-phase-1-step-8-implementation-plan.md).
+
 **Files:** `client/gmcp/contracts/darkwind-window.ts`,
 `darkwind-ide.ts`, `darkwind-map-data-v2.ts`, `darkwind-client.ts`, their validator
 registrations/tests, `docs/plans/multi-connection-ui-phase-1-gmcp-inventory.md`
