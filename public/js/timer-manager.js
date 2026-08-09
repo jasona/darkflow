@@ -5,6 +5,24 @@ import {
   registerTimerAutomation,
 } from './automation-executor.js';
 import { getAutomationScriptDiagnostics } from './automation-script-core.mjs';
+import {
+  getActiveCharacterProfileId,
+  getEffectiveDefinitions,
+  isConfigurationCompatActive,
+  removeLocalDefinitionByIdentity,
+  replaceLocalDefinitions,
+  setLocalDefinitionEnabledByIdentity,
+  subscribe,
+  upsertLocalDefinitionByIdentity,
+} from './session-compat/configuration.js';
+import {
+  clearTimer as bridgeClearTimer,
+  getTimerRuntimeState,
+  isAutomationCompatActive,
+  reconcileTimers as bridgeReconcileTimers,
+  scheduleTimer as bridgeScheduleTimer,
+  scheduleWait,
+} from './session-compat/automation.js';
 
 const TIMER_STORAGE_KEY = 'darkwind-client-timers-v1';
 const MIN_TIMER_MS = 1000;
@@ -170,9 +188,41 @@ function formatTimerName(timer) {
   return String(timer && timer.name || '').trim();
 }
 
+function timerIdentityKey(name) {
+  return normalizeWhitespace(name).toLowerCase();
+}
+
+function getEffectiveTimerEntries() {
+  return getEffectiveDefinitions('timers');
+}
+
+function getEffectiveTimerDefinitions() {
+  return getEffectiveTimerEntries().map((entry) => cloneTimer(entry.definition));
+}
+
+/** Releases any live reconciliation subscription before optionally re-establishing it. */
+function syncReconciliationSubscription() {
+  if (timerManager._reconciliationUnsubscribe) {
+    timerManager._reconciliationUnsubscribe();
+    timerManager._reconciliationUnsubscribe = null;
+  }
+
+  if (!isAutomationCompatActive() || !isConfigurationCompatActive()) {
+    return;
+  }
+
+  timerManager._reconciliationUnsubscribe = subscribe(() => {
+    const scopeKey = timerManager.getActiveScopeKey();
+    bridgeReconcileTimers(getEffectiveTimerDefinitions(), (timer) => {
+      timerManager._scheduleTimer(scopeKey, timer);
+    });
+  });
+}
+
 export const timerManager = {
   _data: { scopes: {} },
   _runtime: new Map(),
+  _reconciliationUnsubscribe: null,
   _sendCommand: null,
   _appendMessage: null,
 
@@ -208,6 +258,9 @@ export const timerManager = {
   },
 
   getActiveScopeKey() {
+    if (isConfigurationCompatActive()) {
+      return getActiveCharacterProfileId();
+    }
     const host = normalizeWhitespace(dom.host && dom.host.value ? dom.host.value : '').toLowerCase() || 'default';
     const port = normalizeWhitespace(dom.port && dom.port.value ? dom.port.value : '') || '4242';
     const sel = dom.protocolSelect && dom.protocolSelect.value;
@@ -228,6 +281,11 @@ export const timerManager = {
   },
 
   getScopeSnapshot(scopeKey = this.getActiveScopeKey()) {
+    if (isConfigurationCompatActive()) {
+      return {
+        timers: getEffectiveTimerDefinitions(),
+      };
+    }
     const scope = normalizeScope(this._ensureScope(scopeKey));
     return {
       timers: scope.timers.map(cloneTimer),
@@ -235,6 +293,12 @@ export const timerManager = {
   },
 
   saveScope(scopeKey, scope) {
+    if (isConfigurationCompatActive()) {
+      syncReconciliationSubscription();
+      replaceLocalDefinitions('timers', normalizeScope(scope).timers);
+      emitTimerDataChanged({ scopeKey });
+      return;
+    }
     this._data.scopes[scopeKey] = normalizeScope(scope);
     this._save({ scopeKey });
     this.reconcileRuntime(scopeKey);
@@ -255,8 +319,14 @@ export const timerManager = {
   },
 
   findTimerByName(name, scopeKey = this.getActiveScopeKey()) {
-    const normalized = normalizeWhitespace(name).toLowerCase();
+    const normalized = timerIdentityKey(name);
     if (!normalized) return null;
+    if (isConfigurationCompatActive()) {
+      const entry = getEffectiveTimerEntries().find(
+        (item) => timerIdentityKey(item.definition.name) === normalized,
+      );
+      return entry ? cloneTimer(entry.definition) : null;
+    }
     return this._ensureScope(scopeKey).timers.find((timer) => (
       normalizeWhitespace(timer.name).toLowerCase() === normalized
     )) || null;
@@ -265,6 +335,10 @@ export const timerManager = {
   findTimerById(id, scopeKey = this.getActiveScopeKey()) {
     const key = String(id || '');
     if (!key) return null;
+    if (isConfigurationCompatActive()) {
+      const entry = getEffectiveTimerEntries().find((item) => item.definition.id === key);
+      return entry ? cloneTimer(entry.definition) : null;
+    }
     return this._ensureScope(scopeKey).timers.find((timer) => timer.id === key) || null;
   },
 
@@ -277,7 +351,15 @@ export const timerManager = {
   setEnabledById(id, enabled, scopeKey = this.getActiveScopeKey()) {
     const timer = this.findTimerById(id, scopeKey);
     if (!timer) return { target: null, enabled: null };
-    timer.enabled = enabled !== false;
+    const nextEnabled = enabled !== false;
+    if (isConfigurationCompatActive()) {
+      syncReconciliationSubscription();
+      const changed = setLocalDefinitionEnabledByIdentity('timers', timerIdentityKey(timer.name), nextEnabled);
+      if (changed && !nextEnabled) this.stopTimerById(timer.id, scopeKey);
+      if (changed) emitTimerDataChanged({ scopeKey });
+      return { target: timer, enabled: changed ? nextEnabled : timer.enabled };
+    }
+    timer.enabled = nextEnabled;
     if (!timer.enabled) this.stopTimerById(timer.id, scopeKey, { silent: true });
     this._save({ scopeKey });
     return { target: timer, enabled: timer.enabled };
@@ -296,6 +378,10 @@ export const timerManager = {
   },
 
   _clearRuntimeTimer(scopeKey, timerId) {
+    if (isAutomationCompatActive()) {
+      bridgeClearTimer(timerId);
+      return;
+    }
     const runtimeScope = this._runtimeScope(scopeKey);
     const runtime = runtimeScope.get(timerId);
     if (runtime && runtime.handle) clearTimeout(runtime.handle);
@@ -305,6 +391,11 @@ export const timerManager = {
   _scheduleTimer(scopeKey, timer) {
     this._clearRuntimeTimer(scopeKey, timer.id);
     if (!timer || timer.enabled === false) return { target: timer || null, running: false };
+
+    if (isAutomationCompatActive()) {
+      bridgeScheduleTimer(timer.id, timer.durationMs, () => this._fireTimer(scopeKey, timer.id));
+      return { target: timer, running: true };
+    }
 
     const runtime = {
       handle: null,
@@ -332,7 +423,7 @@ export const timerManager = {
   },
 
   _executeTimer(scopeKey, timer) {
-    return executeAutomationSteps(timer.steps, {
+    const executionContext = {
       appendMessage: this._appendMessage,
       sendCommand: this._sendCommand,
       scopeKey,
@@ -349,7 +440,11 @@ export const timerManager = {
         depth: 0,
         trail: [],
       },
-    });
+    };
+    if (isAutomationCompatActive()) {
+      executionContext.scheduleWait = (delayMs) => scheduleWait(delayMs);
+    }
+    return executeAutomationSteps(timer.steps, executionContext);
   },
 
   startTimerById(id, scopeKey = this.getActiveScopeKey()) {
@@ -406,13 +501,24 @@ export const timerManager = {
   },
 
   startAutoTimers(scopeKey = this.getActiveScopeKey()) {
-    const scope = this._ensureScope(scopeKey);
-    scope.timers
+    syncReconciliationSubscription();
+    const timers = isConfigurationCompatActive()
+      ? getEffectiveTimerDefinitions()
+      : this._ensureScope(scopeKey).timers;
+    timers
       .filter((timer) => timer.enabled !== false && timer.autoStart)
       .forEach((timer) => this.startTimerById(timer.id, scopeKey));
   },
 
   stopAllTimers(scopeKey = null) {
+    if (isAutomationCompatActive()) {
+      const timers = isConfigurationCompatActive()
+        ? getEffectiveTimerDefinitions()
+        : (scopeKey ? this._ensureScope(scopeKey).timers : Object.values(this._data.scopes).flatMap((scope) => scope.timers));
+      timers.forEach((timer) => bridgeClearTimer(timer.id));
+      return;
+    }
+
     if (scopeKey) {
       const runtimeScope = this._runtimeScope(scopeKey);
       for (const runtime of runtimeScope.values()) {
@@ -428,6 +534,13 @@ export const timerManager = {
   },
 
   reconcileRuntime(scopeKey = this.getActiveScopeKey()) {
+    syncReconciliationSubscription();
+    if (isAutomationCompatActive() && isConfigurationCompatActive()) {
+      bridgeReconcileTimers(getEffectiveTimerDefinitions(), (timer) => {
+        this._scheduleTimer(scopeKey, timer);
+      });
+      return;
+    }
     const timers = this._ensureScope(scopeKey).timers;
     const ids = new Set(timers.filter((timer) => timer.enabled !== false).map((timer) => timer.id));
     const runtimeScope = this._runtimeScope(scopeKey);
@@ -437,6 +550,23 @@ export const timerManager = {
   },
 
   getRuntimeState(scopeKey = this.getActiveScopeKey()) {
+    if (isAutomationCompatActive()) {
+      const timers = isConfigurationCompatActive()
+        ? getEffectiveTimerDefinitions()
+        : this._ensureScope(scopeKey).timers;
+      const result = {};
+      for (const timer of timers) {
+        const runtime = getTimerRuntimeState(timer.id);
+        if (!runtime) continue;
+        result[timer.id] = {
+          running: true,
+          startedAt: runtime.startedAt,
+          fireAt: runtime.fireAt,
+          remainingMs: Math.max(0, runtime.fireAt - Date.now()),
+        };
+      }
+      return result;
+    }
     const runtimeScope = this._runtimeScope(scopeKey);
     const result = {};
     for (const [timerId, runtime] of runtimeScope.entries()) {
@@ -523,6 +653,8 @@ export const timerManager = {
     if (!timer) return '';
     return formatTimerName(timer) + ' every ' + Math.round(timer.durationMs / 1000) + 's';
   },
+
+  syncReconciliationSubscription,
 };
 
 registerTimerAutomation(timerManager);

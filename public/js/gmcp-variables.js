@@ -1,3 +1,11 @@
+import {
+  getGmcpVariables as bridgeGetGmcpVariables,
+  isAutomationCompatActive,
+  listGmcpVariables as bridgeListGmcpVariables,
+  resetGmcpVariables as bridgeResetGmcpVariables,
+  setGmcpVariable,
+} from './session-compat/automation.js';
+
 const GMCP_VARIABLE_PREFIX = 'gmcp';
 const runtimeVariables = {};
 
@@ -50,39 +58,53 @@ function flattenValue(parts, value) {
   });
 }
 
-export function registerGmcpVariables(packageName, data) {
-  const packageParts = String(packageName || '')
-    .split('.')
-    .map(toVariableSegment)
-    .filter(Boolean);
-
-  if (!packageParts.length) return;
-  flattenValue(packageParts, data === undefined ? '' : data);
-
+function dispatchGmcpVariablesChanged(detail) {
   if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
     window.dispatchEvent(new CustomEvent('darkwind:gmcp-variables-changed', {
-      detail: { packageName },
+      detail,
     }));
   }
+}
+
+export function registerGmcpVariables(packageName, data) {
+  if (isAutomationCompatActive()) {
+    setGmcpVariable(packageName, data);
+  } else {
+    const packageParts = String(packageName || '')
+      .split('.')
+      .map(toVariableSegment)
+      .filter(Boolean);
+
+    if (!packageParts.length) return;
+    flattenValue(packageParts, data === undefined ? '' : data);
+  }
+
+  dispatchGmcpVariablesChanged({ packageName });
 }
 
 export function resetGmcpVariables() {
-  Object.keys(runtimeVariables).forEach((key) => {
-    delete runtimeVariables[key];
-  });
-
-  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-    window.dispatchEvent(new CustomEvent('darkwind:gmcp-variables-changed', {
-      detail: { reset: true },
-    }));
+  if (isAutomationCompatActive()) {
+    bridgeResetGmcpVariables();
+  } else {
+    Object.keys(runtimeVariables).forEach((key) => {
+      delete runtimeVariables[key];
+    });
   }
+
+  dispatchGmcpVariablesChanged({ reset: true });
 }
 
 export function getGmcpVariables() {
+  if (isAutomationCompatActive()) {
+    return bridgeGetGmcpVariables();
+  }
   return { ...runtimeVariables };
 }
 
 export function listGmcpVariables() {
+  if (isAutomationCompatActive()) {
+    return bridgeListGmcpVariables();
+  }
   return Object.entries(runtimeVariables)
     .sort((left, right) => left[0].localeCompare(right[0]))
     .map(([name, value]) => ({ name, value }));

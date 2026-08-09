@@ -474,6 +474,9 @@ adapted manager reads its active scope from `dom.host`, `dom.port`, or protocol.
 
 ### Step 12 - Isolate trigger/timer execution and shared-set propagation
 
+Detailed implementation plan:
+[`multi-connection-ui-phase-1-step-12-implementation-plan.md`](multi-connection-ui-phase-1-step-12-implementation-plan.md).
+
 **Files:** `public/js/trigger-manager.js`, `timer-manager.js`,
 `automation-executor.js`, `gmcp-variables.js`, related adapters and tests
 

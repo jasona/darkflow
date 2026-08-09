@@ -14,6 +14,14 @@ import {
   setLocalDefinitionEnabledByIdentity,
   upsertLocalDefinitionByIdentity,
 } from './session-compat/configuration.js';
+import {
+  getAutomationVariables as bridgeGetAutomationVariables,
+  getVariable as bridgeGetVariable,
+  isAutomationCompatActive,
+  listVariableNames as bridgeListVariableNames,
+  removeVariable as bridgeRemoveVariable,
+  setVariable as bridgeSetVariable,
+} from './session-compat/automation.js';
 
 const ALIAS_STORAGE_KEY = 'darkwind-client-aliases-v1';
 const MAX_ALIAS_DEPTH = 10;
@@ -390,10 +398,16 @@ export const aliasManager = {
   },
 
   listVariableNames(scopeKey = this.getActiveScopeKey()) {
+    if (isAutomationCompatActive()) {
+      return bridgeListVariableNames();
+    }
     return Object.keys(this._ensureScope(scopeKey).variables).sort((a, b) => a.localeCompare(b));
   },
 
   getAutomationVariables(scopeKey = this.getActiveScopeKey()) {
+    if (isAutomationCompatActive()) {
+      return bridgeGetAutomationVariables();
+    }
     const scopeVariables = this._ensureScope(scopeKey).variables;
     return {
       ...getGmcpVariables(),
@@ -402,10 +416,16 @@ export const aliasManager = {
   },
 
   getVariable(name, scopeKey = this.getActiveScopeKey()) {
+    if (isAutomationCompatActive()) {
+      return bridgeGetVariable(name);
+    }
     return this._ensureScope(scopeKey).variables[name];
   },
 
   setVariable(name, value, scopeKey = this.getActiveScopeKey()) {
+    if (isAutomationCompatActive()) {
+      return bridgeSetVariable(name, value);
+    }
     const cleanName = normalizeWhitespace(name);
     if (!cleanName) return false;
     this._ensureScope(scopeKey).variables[cleanName] = String(value ?? '');
@@ -414,6 +434,10 @@ export const aliasManager = {
   },
 
   removeVariable(name, scopeKey = this.getActiveScopeKey()) {
+    if (isAutomationCompatActive()) {
+      bridgeRemoveVariable(name);
+      return;
+    }
     if (!name) return;
     delete this._ensureScope(scopeKey).variables[name];
     this._save({ scopeKey });
