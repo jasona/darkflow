@@ -32,10 +32,16 @@ import {
   VISUAL_EFFECT_OPTIONS,
 } from './visual-effects-settings.mjs';
 import {
+  getActiveCharacterProfileId,
   getEffectiveDefinitions,
   isConfigurationCompatActive,
   replaceLocalDefinitions,
 } from './session-compat/configuration.js';
+import {
+  getVariable as automationGetVariable,
+  isAutomationCompatActive,
+  listVariableNames as automationListVariableNames,
+} from './session-compat/automation.js';
 
 const SETTINGS_STORAGE_KEY = 'darkwind-client-settings';
 const ALIAS_STORAGE_KEY = 'darkwind-client-aliases-v1';
@@ -747,8 +753,81 @@ export const settingsManager = {
     });
   },
 
+  _buildBridgeScopedExport(kind, scopeKey) {
+    const definitions = getEffectiveDefinitions(kind).map((entry) => entry.definition);
+    if (kind === 'aliases') {
+      let scope = this._draftAliasScope && this._aliasScopeKey === scopeKey
+        ? JSON.parse(JSON.stringify(this._draftAliasScope))
+        : { aliases: definitions, variables: {} };
+      if (isAutomationCompatActive()) {
+        scope.variables = {};
+        for (const name of automationListVariableNames()) {
+          scope.variables[name] = automationGetVariable(name) ?? '';
+        }
+      } else if (!this._draftAliasScope || this._aliasScopeKey !== scopeKey) {
+        scope.variables = { ...aliasManager._ensureScope(scopeKey).variables };
+      }
+      return { scopes: { [scopeKey]: scope } };
+    }
+    if (kind === 'highlights') {
+      const scope = this._draftHighlightScope && this._highlightScopeKey === scopeKey
+        ? JSON.parse(JSON.stringify(this._draftHighlightScope))
+        : { rules: definitions };
+      return { scopes: { [scopeKey]: scope } };
+    }
+    if (kind === 'triggers') {
+      const scope = this._draftTriggerScope && this._triggerScopeKey === scopeKey
+        ? JSON.parse(JSON.stringify(this._draftTriggerScope))
+        : { triggers: definitions };
+      return { scopes: { [scopeKey]: scope } };
+    }
+    if (kind === 'timers') {
+      const scope = this._draftTimerScope && this._timerScopeKey === scopeKey
+        ? JSON.parse(JSON.stringify(this._draftTimerScope))
+        : { timers: definitions };
+      return { scopes: { [scopeKey]: scope } };
+    }
+    const scope = this._draftFunctionScope && this._functionScopeKey === scopeKey
+      ? JSON.parse(JSON.stringify(this._draftFunctionScope))
+      : { functions: definitions };
+    return { scopes: { [scopeKey]: scope } };
+  },
+
   _buildSettingsBundle() {
     this._syncDraftVariablesFromSteps();
+    if (isConfigurationCompatActive()) {
+      const scopeKey = getActiveCharacterProfileId();
+      const settings = this._normalizeSettings(this._draftSettings || this._settings);
+      const keyMappings = getEffectiveDefinitions('keyMappings')
+        .filter(({ definition }) => definition.enabled !== false)
+        .map(({ definition }) => ({
+          code: definition.code || '',
+          label: definition.label || formatKeyCodeLabel(definition.code || ''),
+          legacyKey: definition.legacyKey || '',
+          command: definition.command,
+        }));
+
+      return {
+        format: 'darkwind-client-settings-export',
+        formatVersion: 1,
+        exportedAt: new Date().toISOString(),
+        clientVersion: state.clientVersion || 'unknown',
+        data: {
+          settings: {
+            ...settings,
+            keyMappings,
+          },
+          aliases: this._buildBridgeScopedExport('aliases', scopeKey),
+          highlights: this._buildBridgeScopedExport('highlights', scopeKey),
+          triggers: this._buildBridgeScopedExport('triggers', scopeKey),
+          timers: this._buildBridgeScopedExport('timers', scopeKey),
+          functions: this._buildBridgeScopedExport('functions', scopeKey),
+          panels: panelManager.exportState(),
+          sound: soundManager.getSettings(),
+        },
+      };
+    }
+
     const aliasData = JSON.parse(JSON.stringify(aliasManager._data || { scopes: {} }));
     const highlightData = JSON.parse(JSON.stringify(highlightManager._data || { scopes: {} }));
     const triggerData = JSON.parse(JSON.stringify(triggerManager._data || { scopes: {} }));
@@ -831,6 +910,33 @@ export const settingsManager = {
     this._applyActiveTheme();
     this._applyActiveBackground();
     this._publishSettingsChanged();
+
+    if (isConfigurationCompatActive()) {
+      const scopeKey = getActiveCharacterProfileId();
+      const aliases = bundle.data.aliases?.scopes?.[scopeKey] || { aliases: [], variables: {} };
+      const highlights = bundle.data.highlights?.scopes?.[scopeKey] || { rules: [] };
+      const triggers = bundle.data.triggers?.scopes?.[scopeKey] || { triggers: [] };
+      const timers = bundle.data.timers?.scopes?.[scopeKey] || { timers: [] };
+      const functions = bundle.data.functions?.scopes?.[scopeKey] || { functions: [] };
+      replaceLocalDefinitions('aliases', aliases.aliases || []);
+      replaceLocalDefinitions('highlights', highlights.rules || []);
+      replaceLocalDefinitions('triggers', triggers.triggers || []);
+      replaceLocalDefinitions('timers', timers.timers || []);
+      replaceLocalDefinitions('functions', functions.functions || []);
+      replaceLocalDefinitions('keyMappings', this._toBridgeKeyMappings(nextSettings.keyMappings || []));
+      aliasManager.saveScope(scopeKey, aliases);
+      highlightManager.saveScope(scopeKey, highlights);
+      triggerManager.saveScope(scopeKey, triggers);
+      timerManager.saveScope(scopeKey, timers);
+      functionManager.saveScope(scopeKey, functions);
+      soundManager.importSettings(bundle.data.sound || {});
+      aliasManager.init();
+      highlightManager.init();
+      triggerManager.init();
+      timerManager.init();
+      functionManager.init();
+      return;
+    }
 
     try {
       localStorage.setItem(ALIAS_STORAGE_KEY, JSON.stringify(bundle.data.aliases || { scopes: {} }));

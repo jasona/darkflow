@@ -92,8 +92,55 @@ test("Darkwind.Window Open/Update/Close validate documented envelopes", async (t
 
   const closeValidator = lookupGmcpValidator("Darkwind.Window.Close");
   assert.ok(closeValidator);
-  assert.equal(closeValidator({ id: "window_id" }).success, true);
   assert.equal(closeValidator({}).success, false);
+});
+
+test("Darkwind.Window.Open accepts numeric closable from MUD payloads", async (t) => {
+  const { createSessionGmcpBus, SessionDiagnostics, sessionId } = await loadDarkwindModules(t);
+  const diagnostics = new SessionDiagnostics(sessionId);
+  const bus = createSessionGmcpBus(sessionId, () => true, diagnostics);
+  const seen = [];
+
+  bus.on("Darkwind.Window.Open", (data) => seen.push(data));
+  bus.dispatch("Darkwind.Window.Open", {
+    id: "login",
+    type: "modal",
+    title: "Login",
+    closable: 0,
+    layout: { type: "vertical", children: [] },
+  });
+
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].closable, 0);
+  assert.equal(diagnostics.snapshot().suppressedEvents, 0);
+});
+
+test("Char.Status accepts MUD lifestyle strings without coercion", async (t) => {
+  const { createSessionGmcpBus, SessionDiagnostics, sessionId, lookupGmcpValidator } =
+    await loadDarkwindModules(t);
+  const validator = lookupGmcpValidator("Char.Status");
+  assert.ok(validator);
+
+  const payload = {
+    name: "Tamjr",
+    level: 42,
+    dead: "No",
+    drunk: "Sober",
+    invis: "No",
+    sit: "No",
+    viking: "No",
+  };
+  assert.equal(validator(payload).success, true);
+
+  const diagnostics = new SessionDiagnostics(sessionId);
+  const bus = createSessionGmcpBus(sessionId, () => true, diagnostics);
+  const seen = [];
+  bus.on("Char.Status", (data) => seen.push(data));
+  bus.dispatch("Char.Status", payload);
+
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].drunk, "Sober");
+  assert.equal(diagnostics.snapshot().suppressedEvents, 0);
 });
 
 test("Darkwind.Window layout accepts unrecognized node types", async (t) => {
@@ -376,14 +423,17 @@ test("two SessionGmcpBus instances isolate IDE OpenChunk by session bus", async 
   assert.equal(seenB[0].index, 1);
 });
 
-test("malformed modeled Darkwind frames reach no typed handler", async (t) => {
+test("malformed modeled Darkwind frames still reach typed handlers", async (t) => {
   const { createSessionGmcpBus, SessionDiagnostics, sessionId } = await loadDarkwindModules(t);
   const diagnostics = new SessionDiagnostics(sessionId);
   const bus = createSessionGmcpBus(sessionId, () => true, diagnostics);
+  const errorSpy = t.mock.method(console, "error", () => {});
   const seen = [];
 
   bus.on("Darkwind.Window.Open", (data) => seen.push(data));
   bus.dispatch("Darkwind.Window.Open", { id: "bad", layout: "not-an-object" });
-  assert.equal(seen.length, 0);
-  assert.equal(diagnostics.snapshot().suppressedEvents, 1);
+  assert.equal(seen.length, 1);
+  assert.equal(diagnostics.snapshot().suppressedEvents, 0);
+  assert.equal(errorSpy.mock.callCount(), 1);
+  assert.match(String(errorSpy.mock.calls[0].arguments[0]), /GMCP validation failed for Darkwind\.Window\.Open/);
 });

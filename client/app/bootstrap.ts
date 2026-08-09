@@ -1,31 +1,62 @@
-import typia from "typia";
-
-/** Temporary Phase 1 bootstrap diagnostic exposed until Step 13 cutover. */
-interface BootstrapDiagnostic {
-  phase: "bootstrapping" | "legacy-loaded";
-}
-
-const validateBootstrapDiagnostic = typia.createValidate<BootstrapDiagnostic>();
+import {
+  clearPhase1RuntimeSlot,
+  publishBootstrapPhase,
+  readPhase1RuntimeSlot,
+  runBootTransaction,
+  writePhase1RuntimeSlot,
+  type SessionBootstrapDiagnostic,
+} from "./bootstrap-transaction.ts";
 
 declare global {
   interface Window {
-    __darkflowPhase1Bootstrap?: BootstrapDiagnostic;
+    __darkflowPhase1Bootstrap?: import("./bootstrap-transaction.ts").BootstrapDiagnostic;
+    __darkflowPhase1Session?: SessionBootstrapDiagnostic;
+    __darkflowPhase1Runtime?: import("./bootstrap-transaction.ts").Phase1RuntimeRecord;
   }
 }
 
-const bootstrapping: BootstrapDiagnostic = { phase: "bootstrapping" };
-if (!validateBootstrapDiagnostic(bootstrapping).success) {
-  throw new Error("Bootstrap diagnostic validation failed before legacy import");
+const LEGACY_APP_ENTRY = "/js/app.js";
+
+function importPublicModule<T = Record<string, unknown>>(entry: string): Promise<T> {
+  return import(/* @vite-ignore */ entry) as Promise<T>;
 }
 
-window.__darkflowPhase1Bootstrap = bootstrapping;
-
-const legacyAppEntry = "/js/app.js";
-await import(/* @vite-ignore */ legacyAppEntry);
-
-const legacyLoaded: BootstrapDiagnostic = { phase: "legacy-loaded" };
-if (!validateBootstrapDiagnostic(legacyLoaded).success) {
-  throw new Error("Bootstrap diagnostic validation failed after legacy import");
+async function loadLegacyApp(): Promise<void> {
+  await importPublicModule(LEGACY_APP_ENTRY);
+  publishBootstrapPhase(window, "legacy-loaded");
 }
 
-window.__darkflowPhase1Bootstrap = legacyLoaded;
+async function bootstrap(): Promise<void> {
+  try {
+    await runBootTransaction({
+      storage: globalThis.localStorage,
+      urlSearchParams: new URLSearchParams(globalThis.location?.search ?? ""),
+      uuidFactory: () => crypto.randomUUID(),
+      fetchConfig: async () => {
+        const configResponse = await fetch("/config.json");
+        return configResponse.ok ? await configResponse.json() : {};
+      },
+      importModule: importPublicModule,
+      loadLegacyApp,
+      setBootstrapPhase: (phase) => publishBootstrapPhase(window, phase),
+      readRuntimeSlot: () => readPhase1RuntimeSlot(window),
+      writeRuntimeSlot: (record) => writePhase1RuntimeSlot(window, record),
+      clearRuntimeSlot: () => clearPhase1RuntimeSlot(window),
+      publishSessionDiagnostic: (diagnostic) => {
+        window.__darkflowPhase1Session = diagnostic;
+      },
+      clearSessionDiagnostic: () => {
+        delete window.__darkflowPhase1Session;
+      },
+      webSocketFactory: (url) => new WebSocket(url),
+      onlineTarget: globalThis.window,
+      appOrigin: globalThis.location?.origin ?? "http://localhost:3000",
+      onText: () => {},
+    });
+  } catch (error) {
+    console.error("Phase 1 session bootstrap failed; falling back to legacy runtime.", error);
+    await loadLegacyApp();
+  }
+}
+
+await bootstrap();

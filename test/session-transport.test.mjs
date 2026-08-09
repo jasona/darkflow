@@ -52,6 +52,7 @@ async function loadTransportModules(t) {
     createSessionEventBus: eventBusModule.createSessionEventBus,
     buildTransportLadder: urlsModule.buildTransportLadder,
     buildConnectionUrl: urlsModule.buildConnectionUrl,
+    resolveLegacyToolbarEndpoint: urlsModule.resolveLegacyToolbarEndpoint,
     createTransportHealth: healthModule.createTransportHealth,
     computeReconnectDelay: reconnectModule.computeReconnectDelay,
     createReconnectController: reconnectModule.createReconnectController,
@@ -249,9 +250,25 @@ test("buildTransportLadder matches legacy ladder fixtures", async (t) => {
 });
 
 test("buildConnectionUrl produces direct and proxy URLs", async (t) => {
-  const { buildConnectionUrl } = await loadTransportModules(t);
+  const { buildConnectionUrl, resolveLegacyToolbarEndpoint } = await loadTransportModules(t);
   const endpoint = { host: "127.0.0.1", port: "4242", protocol: "wss" };
 
+  assert.equal(
+    resolveLegacyToolbarEndpoint(endpoint, { host: "darkwind.ai", port: "4244", protocol: "wss" }).host,
+    "darkwind.ai",
+  );
+  assert.equal(
+    resolveLegacyToolbarEndpoint(endpoint, { host: "", port: "", protocol: "" }).host,
+    "localhost",
+  );
+  assert.equal(
+    buildConnectionUrl({ host: "default", port: "4242", protocol: "ws" }, "http://localhost:3000"),
+    "ws://localhost:4242/",
+  );
+  assert.equal(
+    buildConnectionUrl({ host: "", port: "4242", protocol: "ws" }, "http://localhost:3000"),
+    "ws://localhost:4242/",
+  );
   assert.equal(buildConnectionUrl({ ...endpoint, protocol: "ws" }, "http://localhost:3000"), "ws://127.0.0.1:4242/");
   assert.equal(buildConnectionUrl({ ...endpoint, protocol: "wss" }, "http://localhost:3000"), "wss://127.0.0.1:4242/");
   assert.equal(

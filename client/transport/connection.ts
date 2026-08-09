@@ -290,13 +290,21 @@ export function createSessionTransport(
         const at = now();
         try {
           if (typeof event.data === "string") {
+            eventBus.publish("transport:inbound-bytes", {
+              kind: "text",
+              size: event.data.length,
+            });
             health.recordInboundText(at);
             callbacks.onText(event.data);
             reconnect.scheduleLostTransmissionRecovery(event.data, health);
           } else {
             const arr = new Uint8Array(event.data as ArrayBuffer);
-            health.recordInboundGmcp(at);
             const { packageName, data } = decodeGmcpWireFrame(arr);
+            eventBus.publish("transport:inbound-bytes", {
+              kind: "gmcp",
+              size: arr.byteLength,
+            });
+            health.recordInboundGmcp(at);
             callbacks.onGmcpFrame(packageName, data);
           }
           health.recordBufferedAmount(socket);

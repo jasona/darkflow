@@ -11,7 +11,7 @@ export interface DarkwindWindowOpen {
   id: string;
   type?: string;
   title?: string;
-  closable?: boolean;
+  closable?: boolean | number;
   width?: string | number;
   height?: string | number;
   dock?: string;

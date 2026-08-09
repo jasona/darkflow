@@ -42,11 +42,11 @@ export interface CharStatus {
   gender?: string;
   gold?: number;
   bank?: number;
-  dead?: number | boolean;
-  drunk?: number | boolean;
-  invis?: number | boolean;
-  sit?: number | boolean;
-  viking?: number | boolean;
+  dead?: string;
+  drunk?: string;
+  invis?: string;
+  sit?: string;
+  viking?: string;
   [key: string]: unknown;
 }
 

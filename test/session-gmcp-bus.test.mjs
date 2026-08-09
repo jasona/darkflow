@@ -176,11 +176,12 @@ test("documented valid payloads pass their registered validators", async (t) => 
   assert.ok(modeledGmcpPackageNames.length >= Object.keys(fixtures).length);
 });
 
-test("malformed known-field frames reach no handler and do not block the next frame", async (t) => {
+test("malformed known-field frames still reach handlers and do not block the next frame", async (t) => {
   const { createSessionGmcpBus, SessionDiagnostics, sessionId } = await loadGmcpModules(t);
   const diagnostics = new SessionDiagnostics(sessionId);
   const { sink } = createSendSpy();
   const bus = createSessionGmcpBus(sessionId, sink, diagnostics);
+  const errorSpy = t.mock.method(console, "error", () => {});
 
   const wildcardSeen = [];
   const vitalsSeen = [];
@@ -199,21 +200,26 @@ test("malformed known-field frames reach no handler and do not block the next fr
   bus.dispatch("Char.Vitals", { hp: "not-a-number", maxhp: 500, sp: 180, maxsp: 220 });
   bus.dispatch("Room.Info", { num: 1, name: "Test Room" });
 
-  assert.deepEqual(wildcardSeen, ["Room.Info"]);
-  assert.equal(vitalsSeen.length, 0);
+  assert.deepEqual(wildcardSeen, ["Char.Vitals", "Room.Info"]);
+  assert.equal(vitalsSeen.length, 1);
   assert.deepEqual(roomSeen, [{ num: 1, name: "Test Room" }]);
-  assert.equal(diagnostics.snapshot().suppressedEvents, 1);
+  assert.equal(diagnostics.snapshot().suppressedEvents, 0);
+  assert.equal(errorSpy.mock.callCount(), 1);
+  assert.match(String(errorSpy.mock.calls[0].arguments[0]), /GMCP validation failed for Char\.Vitals/);
 });
 
-test("malformed Core.Supports.Set is rejected before mutating supports map", async (t) => {
+test("malformed Core.Supports.Set logs validation errors but still updates supports map", async (t) => {
   const { createSessionGmcpBus, SessionDiagnostics, sessionId } = await loadGmcpModules(t);
   const diagnostics = new SessionDiagnostics(sessionId);
   const { sink } = createSendSpy();
   const bus = createSessionGmcpBus(sessionId, sink, diagnostics);
+  const errorSpy = t.mock.method(console, "error", () => {});
 
   bus.dispatch("Core.Supports.Set", { "Char.Vitals": true });
-  assert.equal(bus.serverSupportsPackage("Char.Vitals"), false);
-  assert.equal(diagnostics.snapshot().suppressedEvents, 1);
+  assert.equal(bus.serverSupportsPackage("Char.Vitals"), true);
+  assert.equal(diagnostics.snapshot().suppressedEvents, 0);
+  assert.equal(errorSpy.mock.callCount(), 1);
+  assert.match(String(errorSpy.mock.calls[0].arguments[0]), /GMCP validation failed for Core\.Supports\.Set/);
 
   bus.dispatch("Core.Supports.Set", ["Char.Vitals 1"]);
   assert.equal(bus.serverSupportsPackage("Char.Vitals"), true);

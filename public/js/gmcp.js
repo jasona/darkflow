@@ -5,12 +5,29 @@ import { PRODUCT_NAME } from './brand.js';
 import { isSocketOpen } from './socket-state.js';
 import { canonicalPackageName, normalizeGmcpFrame, normalizeSupportsPayload } from './gmcp-normalizer.js';
 import { registerGmcpVariables, resetGmcpVariables } from './gmcp-variables.js';
+import {
+  gmcpDispatch as runtimeGmcpDispatch,
+  gmcpEnableChannel as runtimeGmcpEnableChannel,
+  gmcpOff as runtimeGmcpOff,
+  gmcpOn as runtimeGmcpOn,
+  gmcpRequestChannelPlayers as runtimeGmcpRequestChannelPlayers,
+  gmcpRequestMediaRefresh as runtimeGmcpRequestMediaRefresh,
+  gmcpReset as runtimeGmcpReset,
+  gmcpRestartHandshake as runtimeGmcpRestartHandshake,
+  gmcpSend as runtimeGmcpSend,
+  gmcpSendHandshake as runtimeGmcpSendHandshake,
+  gmcpSendSubscriptions as runtimeGmcpSendSubscriptions,
+  gmcpServerSupportsPackage as runtimeGmcpServerSupportsPackage,
+  gmcpIsEnabled as runtimeGmcpIsEnabled,
+  isSessionRuntimeActive,
+} from './session-compat/runtime.js';
 
 const GMCP_CLIENT_NAME = PRODUCT_NAME;
 const GMCP_MEDIA_REFRESH_PACKAGE = 'Darkwind.Client.RefreshMedia';
 const GMCP_SUBSCRIPTIONS_PACKAGE = 'Darkwind.Client.Subscriptions';
 const gmcpTextEncoder = new TextEncoder();
 export const gmcpTextDecoder = new TextDecoder('utf-8');
+let legacyGmcpEnabled = false;
 
 function normalizeSupports(payload) {
   payload = normalizeSupportsPayload(payload);
@@ -51,24 +68,46 @@ export function normalizeSubscriptionPayload(payload = {}) {
 }
 
 export const gmcp = {
-  enabled: false,
+  get enabled() {
+    if (isSessionRuntimeActive()) {
+      return runtimeGmcpIsEnabled();
+    }
+    return legacyGmcpEnabled;
+  },
+  set enabled(value) {
+    if (!isSessionRuntimeActive()) {
+      legacyGmcpEnabled = !!value;
+    }
+  },
   handlers: {},
   subscriptions: normalizeSubscriptionPayload(),
   serverSupports: {},
 
   on(packageName, callback) {
+    if (isSessionRuntimeActive()) {
+      runtimeGmcpOn(packageName, callback);
+      return;
+    }
     packageName = canonicalPackageName(packageName);
     if (!this.handlers[packageName]) this.handlers[packageName] = [];
     this.handlers[packageName].push(callback);
   },
 
   off(packageName, callback) {
+    if (isSessionRuntimeActive()) {
+      runtimeGmcpOff(packageName, callback);
+      return;
+    }
     packageName = canonicalPackageName(packageName);
     if (!this.handlers[packageName]) return;
     this.handlers[packageName] = this.handlers[packageName].filter(cb => cb !== callback);
   },
 
   dispatch(packageName, data) {
+    if (isSessionRuntimeActive()) {
+      runtimeGmcpDispatch(packageName, data);
+      return;
+    }
     const normalized = normalizeGmcpFrame(packageName, data);
     packageName = normalized.packageName;
     data = normalized.data;
@@ -110,10 +149,16 @@ export const gmcp = {
   },
 
   serverSupportsPackage(packageName) {
+    if (isSessionRuntimeActive()) {
+      return runtimeGmcpServerSupportsPackage(packageName);
+    }
     return !!this.serverSupports[canonicalPackageName(packageName)];
   },
 
   send(packageName, data) {
+    if (isSessionRuntimeActive()) {
+      return runtimeGmcpSend(packageName, data);
+    }
     if (!isSocketOpen(state.ws)) return false;
     const payload = data !== undefined
       ? packageName + ' ' + JSON.stringify(data)
@@ -126,6 +171,9 @@ export const gmcp = {
   },
 
   sendHandshake() {
+    if (isSessionRuntimeActive()) {
+      return runtimeGmcpSendHandshake();
+    }
     const geometry = state.terminalGeometry || {};
     this.send('Core.Hello', {
       client: GMCP_CLIENT_NAME,
@@ -178,11 +226,17 @@ export const gmcp = {
       'Darkwind.StreetSamurai 1',
       'Darkwind.Room.Playlist 1'
     ]);
-    this.enabled = true;
+    legacyGmcpEnabled = true;
   },
 
   reset() {
-    this.enabled = false;
+    if (isSessionRuntimeActive()) {
+      runtimeGmcpReset();
+      this.serverSupports = {};
+      this.subscriptions = normalizeSubscriptionPayload();
+      return;
+    }
+    legacyGmcpEnabled = false;
     this.serverSupports = {};
     this.subscriptions = normalizeSubscriptionPayload();
     resetGmcpVariables();
@@ -192,6 +246,23 @@ export const gmcp = {
   },
 
   sendSubscriptions(payload = {}) {
+    if (isSessionRuntimeActive()) {
+      const sent = runtimeGmcpSendSubscriptions(payload);
+      if (!sent) return false;
+      this.subscriptions = normalizeSubscriptionPayload({
+        ...this.subscriptions,
+        ...payload,
+        panels: payload.panels || this.subscriptions.panels,
+        features: {
+          ...this.subscriptions.features,
+          ...(payload.features || {}),
+        },
+      });
+      if (payload.features && payload.features.announcementsList) {
+        this.subscriptions.features.announcementsList = false;
+      }
+      return true;
+    }
     if (!isSocketOpen(state.ws)) return false;
     const subscriptions = normalizeSubscriptionPayload({
       ...this.subscriptions,
@@ -212,6 +283,9 @@ export const gmcp = {
   },
 
   requestMediaRefresh() {
+    if (isSessionRuntimeActive()) {
+      return runtimeGmcpRequestMediaRefresh();
+    }
     if (!isSocketOpen(state.ws)) {
       return false;
     }
@@ -221,6 +295,9 @@ export const gmcp = {
   },
 
   requestChannelPlayers() {
+    if (isSessionRuntimeActive()) {
+      return runtimeGmcpRequestChannelPlayers();
+    }
     if (!isSocketOpen(state.ws)) {
       return false;
     }
@@ -230,6 +307,9 @@ export const gmcp = {
   },
 
   enableChannel(channel) {
+    if (isSessionRuntimeActive()) {
+      return runtimeGmcpEnableChannel(channel);
+    }
     const name = typeof channel === 'string' ? channel.trim() : '';
     if (!name || !isSocketOpen(state.ws)) {
       return false;
@@ -240,6 +320,15 @@ export const gmcp = {
   },
 
   restartHandshake(payload = {}) {
+    if (isSessionRuntimeActive()) {
+      const sent = runtimeGmcpRestartHandshake(payload);
+      if (sent) {
+        appendSystemMessage('GMCP handshake and full pane sync requested.');
+      } else {
+        appendSystemMessage('GMCP restart unavailable: not connected.');
+      }
+      return sent;
+    }
     if (!isSocketOpen(state.ws)) {
       appendSystemMessage('GMCP restart unavailable: not connected.');
       return false;

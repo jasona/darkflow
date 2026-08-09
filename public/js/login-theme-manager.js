@@ -14,8 +14,8 @@ export class LoginThemeManager {
   constructor(manager = soundManager, timers = {}, gmcpClient = gmcp) {
     this.soundManager = manager;
     this.gmcp = gmcpClient;
-    this.setTimer = timers.setTimeout || setTimeout;
-    this.clearTimer = timers.clearTimeout || clearTimeout;
+    this.setTimer = timers.setTimeout || setTimeout.bind(globalThis);
+    this.clearTimer = timers.clearTimeout || clearTimeout.bind(globalThis);
     this.stopTimer = null;
     this.authActive = false;
     this.themeRequested = false;

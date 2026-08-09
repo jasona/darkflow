@@ -1,6 +1,6 @@
 import { resolveEffectiveConfiguration } from "../configuration/resolve.ts";
 import { subscribe } from "../configuration/service.ts";
-import { createSessionGmcpBus } from "../gmcp/bus.ts";
+import { createSessionGmcpBus, type SessionGmcpBus } from "../gmcp/bus.ts";
 import type { CoreHello } from "../gmcp/contracts/core.ts";
 import type { CharacterProfileId, ServerProfileId, UuidFactory } from "../model/ids.ts";
 import { createSessionId } from "../model/ids.ts";
@@ -9,11 +9,28 @@ import type { SessionRegistry } from "../model/session-contract.ts";
 import { createSessionTransport } from "../transport/connection.ts";
 import type { SessionTransport } from "../transport/types.ts";
 import type { WebSocketLike } from "../transport/types.ts";
+import type { TransportEndpoint } from "../transport/types.ts";
 import { SessionDiagnostics } from "./diagnostics.ts";
 import { createSessionEventBus } from "./event-bus.ts";
 import { createResourceScope } from "./resource-scope.ts";
 import { createSessionRuntimeState } from "./runtime-state.ts";
+import { createAutomationRuntimeState, type AutomationRuntimeState } from "./automation-runtime.ts";
 import { createSession, type Session } from "./session.ts";
+import type { SessionEventBus } from "./event-bus.ts";
+import type { ResourceScope } from "./resource-scope.ts";
+
+/** Wiring handles exposed to Phase 1 compatibility facades; not part of the public Session API. */
+export interface SessionFacadeHandles {
+  gmcp: SessionGmcpBus;
+  transport: SessionTransport;
+  scope: ResourceScope;
+  automationRuntime: AutomationRuntimeState;
+  eventBus: SessionEventBus;
+  /** Updates the live transport endpoint read on each connect attempt. */
+  setConnectionEndpoint(endpoint: TransportEndpoint): void;
+  /** Returns the migrated server profile endpoint before toolbar overrides. */
+  getBaselineEndpoint(): TransportEndpoint;
+}
 
 /** Injected dependencies required to construct a session from application state. */
 export interface SessionFactoryDeps {
@@ -25,11 +42,12 @@ export interface SessionFactoryDeps {
   webSocketFactory: (url: string) => WebSocketLike;
   onlineTarget: { addEventListener(type: string, listener: () => void): void };
   now?: () => number;
+  onText: (text: string) => void;
 }
 
 /** Result of attempting to create a session from validated application state. */
 export type SessionFactoryResult =
-  | { success: true; data: Session }
+  | { success: true; data: Session; handles: SessionFacadeHandles }
   | {
       success: false;
       code: "unknown-server-profile" | "unknown-character-profile" | "character-server-mismatch";
@@ -105,20 +123,23 @@ export function createSessionFromState(
     diagnostics,
   );
 
+  const baselineEndpoint: TransportEndpoint = {
+    host: serverProfile.host,
+    port: String(serverProfile.port),
+    protocol: serverProfile.protocol,
+  };
+  const connectionEndpoint: TransportEndpoint = { ...baselineEndpoint };
+
   const transport = createSessionTransport(
     sessionId,
     scope,
     eventBus,
     diagnostics,
     {
-      getEndpoint: () => ({
-        host: serverProfile.host,
-        port: String(serverProfile.port),
-        protocol: serverProfile.protocol,
-      }),
+      getEndpoint: () => ({ ...connectionEndpoint }),
       getAutoReconnect: deps.getAutoReconnect,
       isLoggedIntoCharacter: () => compositionRefs.runtimeState!.isLoggedIntoCharacter(),
-      onText: () => {},
+      onText: deps.onText,
       onGmcpFrame: (packageName, data) => {
         gmcp.dispatch(packageName, data);
       },
@@ -134,6 +155,8 @@ export function createSessionFromState(
 
   const runtimeState = createSessionRuntimeState(resolved.data);
   compositionRefs.runtimeState = runtimeState;
+
+  const automationRuntime = createAutomationRuntimeState(scope);
 
   const unsubscribeConfiguration = subscribe(characterProfileId, (snapshot) => {
     runtimeState.setEffectiveConfiguration(snapshot);
@@ -152,5 +175,23 @@ export function createSessionFromState(
     unsubscribeConfiguration,
   });
 
-  return { success: true, data: session };
+  return {
+    success: true,
+    data: session,
+    handles: {
+      gmcp,
+      transport,
+      scope,
+      automationRuntime,
+      eventBus,
+      setConnectionEndpoint(endpoint: TransportEndpoint) {
+        connectionEndpoint.host = endpoint.host;
+        connectionEndpoint.port = endpoint.port;
+        connectionEndpoint.protocol = endpoint.protocol;
+      },
+      getBaselineEndpoint() {
+        return { ...baselineEndpoint };
+      },
+    },
+  };
 }

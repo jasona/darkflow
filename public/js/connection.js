@@ -17,6 +17,20 @@ import {
   socketReadyStateName,
 } from './socket-state.js';
 import { visualEffectsSubscriptionEnabled } from './visual-effects-settings.mjs';
+import {
+  connect as runtimeConnect,
+  disconnect as runtimeDisconnect,
+  ensureConnected as runtimeEnsureConnected,
+  expectInboundWithin as runtimeExpectInboundWithin,
+  forceReconnect as runtimeForceReconnect,
+  getHealthSnapshot as runtimeGetHealthSnapshot,
+  getSessionId as runtimeGetSessionId,
+  isSessionRuntimeActive,
+  retryNow as runtimeRetryNow,
+  sendPayload as runtimeSendPayload,
+  subscribeConnectionState as runtimeSubscribeConnectionState,
+  subscribeReconnectStatus as runtimeSubscribeReconnectStatus,
+} from './session-compat/runtime.js';
 
 const WS_DIAG_LIMIT = 100;
 const WS_HEALTH_INTERVAL_MS = 5000;
@@ -49,6 +63,98 @@ let cycleRungsTried = 0;
 let upgradeProbeTimer = null;
 let upgradeProbeSocket = null;
 let handshakeResendTimer = null;
+let activeLifecycleState = null;
+let activeLifecycleWired = false;
+let lastConnectedReconnectDetail = null;
+
+/** Runs legacy connect/disconnect side effects when the session transport changes state. */
+export function wireActiveSessionLifecycle() {
+  if (activeLifecycleWired || !isSessionRuntimeActive()) {
+    return;
+  }
+  activeLifecycleWired = true;
+
+  runtimeSubscribeReconnectStatus(function(detail) {
+    if (detail.status === 'connected') {
+      lastConnectedReconnectDetail = detail;
+    }
+  });
+
+  runtimeSubscribeConnectionState(function(connState) {
+    if (connState === 'connected') {
+      handleActiveSessionConnected();
+    } else if (connState === 'disconnected') {
+      handleActiveSessionDisconnected();
+    }
+  });
+}
+
+function handleActiveSessionConnected() {
+  if (activeLifecycleState === 'connected') {
+    return;
+  }
+  activeLifecycleState = 'connected';
+
+  const wasReconnect = state.everConnected;
+  state.everConnected = true;
+  state.bytesSent = 0;
+  state.bytesReceived = 0;
+
+  const transport = lastConnectedReconnectDetail && lastConnectedReconnectDetail.transport;
+  if (transport) {
+    state.activeTransport = TRANSPORT_SHORT[transport] || transport;
+  }
+
+  const health = runtimeGetHealthSnapshot();
+  const connectionLabel = state.zorkOnlyMode
+    ? 'Darkwind'
+    : (health.url || 'server');
+  appendSystemMessage('Connected to ' + connectionLabel + ' [' + (state.activeTransport || transport || 'wss') + ']');
+  expectInboundWithin(10000, 'no server traffic after connect');
+
+  if (dom.statusConnection) {
+    dom.statusConnection.textContent = 'Connected [' + (state.activeTransport || transport || 'wss') + ']: 0s';
+  }
+  if (dom.commandInput) {
+    dom.commandInput.focus();
+  }
+
+  panelManager.resetData();
+  tutorialManager.handleConnected(wasReconnect ? 'reconnect' : 'login');
+  timerManager.startAutoTimers();
+}
+
+function handleActiveSessionDisconnected() {
+  if (activeLifecycleState === 'disconnected') {
+    return;
+  }
+  activeLifecycleState = 'disconnected';
+
+  gmcp.reset();
+  state.tabObservability.lastSentState = null;
+  combatVisualManager.handleDisconnect();
+  tutorialManager.handleDisconnect();
+  panelManager.resetData();
+  fishingManager.handleDisconnect();
+  windowManager.resetAll({ keepAuth: true });
+
+  const brandText = dom.toolbarBrand ? dom.toolbarBrand.querySelector('span') : null;
+  if (brandText) {
+    brandText.textContent = PRODUCT_NAME;
+  } else if (dom.toolbarBrand) {
+    dom.toolbarBrand.textContent = PRODUCT_NAME;
+  }
+  document.title = PRODUCT_NAME;
+  if (dom.statusConnection) {
+    dom.statusConnection.textContent = 'Not connected';
+    dom.statusConnection.title = '';
+  }
+  if (dom.statusUptime) {
+    dom.statusUptime.textContent = '';
+  }
+
+  timerManager.stopAllTimers();
+}
 
 function getHealth() {
   return state.wsHealth;
@@ -324,6 +430,10 @@ function finalizeDisconnect() {
 }
 
 export function forceReconnect(reason) {
+  if (isSessionRuntimeActive()) {
+    runtimeForceReconnect(reason);
+    return;
+  }
   const ws = state.ws;
   const health = getHealth();
 
@@ -362,6 +472,10 @@ export function forceReconnect(reason) {
 // stall detectors fire (auth submits are not command bursts). If nothing
 // inbound arrives within the window, treat the socket as dead.
 export function expectInboundWithin(ms, reason) {
+  if (isSessionRuntimeActive()) {
+    runtimeExpectInboundWithin(ms, reason);
+    return;
+  }
   const health = getHealth();
   const since = health.lastInboundAt || 0;
 
@@ -378,6 +492,10 @@ export function expectInboundWithin(ms, reason) {
 // and the reconnect overlay so a dead session always works its way back
 // to connected without the player touching the toolbar.
 export function ensureConnected() {
+  if (isSessionRuntimeActive()) {
+    runtimeEnsureConnected();
+    return;
+  }
   if (state.userDisconnected) state.userDisconnected = false;
   if (isSocketOpen(state.ws) || isSocketConnecting(state.ws)) return;
   if (state.connectionPending || state.reconnectTimer) return;
@@ -386,6 +504,10 @@ export function ensureConnected() {
 
 // Skip the backoff and try again right now.
 export function retryNow() {
+  if (isSessionRuntimeActive()) {
+    runtimeRetryNow();
+    return;
+  }
   if (state.reconnectTimer) {
     clearTimeout(state.reconnectTimer);
     state.reconnectTimer = null;
@@ -469,6 +591,9 @@ function scheduleLostTransmissionRecovery(text) {
 }
 
 export function noteOutboundActivity(kind, metadata) {
+  if (isSessionRuntimeActive()) {
+    return;
+  }
   const now = Date.now();
   const health = getHealth();
   const detail = metadata || {};
@@ -490,6 +615,13 @@ export function noteOutboundActivity(kind, metadata) {
 }
 
 export function sendSocketPayload(payload, metadata) {
+  if (isSessionRuntimeActive()) {
+    const sent = runtimeSendPayload(payload, metadata);
+    if (sent && (!metadata || metadata.closeOpenLine !== false)) {
+      closeOpenOutputLine();
+    }
+    return sent;
+  }
   if (!isSocketOpen(state.ws)) return false;
 
   const kind = metadata && metadata.kind ? metadata.kind : 'generic';
@@ -520,8 +652,41 @@ export function sendSocketPayload(payload, metadata) {
 }
 
 export function getWsDebugSnapshot() {
+  const phase1SessionId =
+    typeof window !== 'undefined' ? window.__darkflowPhase1Session?.sessionId : undefined;
+
+  if (isSessionRuntimeActive()) {
+    const health = runtimeGetHealthSnapshot();
+    return {
+      sessionId: runtimeGetSessionId() ?? phase1SessionId,
+      url: health.url,
+      readyState: state.ws ? state.ws.readyState : WebSocket.CLOSED,
+      readyStateName: health.readyStateName,
+      connectionPending: health.connectionPending,
+      reconnectAttempts: health.reconnectAttempts,
+      openWindows: Object.keys(windowManager.windows || {}),
+      connectTime: health.connectTime,
+      lastOpenAt: health.lastOpenAt,
+      lastInboundAt: health.lastInboundAt,
+      lastInboundTextAt: health.lastInboundTextAt,
+      lastInboundGmcpAt: health.lastInboundGmcpAt,
+      lastOutboundAt: health.lastOutboundAt,
+      lastCommandAt: health.lastCommandAt,
+      lastErrorAt: health.lastErrorAt,
+      lastCloseAt: health.lastCloseAt,
+      lastHandlerErrorAt: health.lastHandlerErrorAt,
+      bufferedAmount: health.bufferedAmount,
+      lastBufferedAmount: health.lastBufferedAmount,
+      maxBufferedAmount: health.maxBufferedAmount,
+      stalledAt: health.stalledAt,
+      forcedReconnects: health.forcedReconnects,
+      recentCommandCount: health.recentCommandCount,
+      events: health.events.slice(-50),
+    };
+  }
   const health = getHealth();
   return {
+    ...(phase1SessionId ? { sessionId: phase1SessionId } : {}),
     url: health.currentUrl,
     readyState: state.ws ? state.ws.readyState : WebSocket.CLOSED,
     readyStateName: socketReadyStateName(state.ws),
@@ -592,6 +757,10 @@ function scheduleReconnect() {
 }
 
 export async function connect() {
+  if (isSessionRuntimeActive()) {
+    runtimeConnect();
+    return;
+  }
   if (state.ws && isSocketClosingOrClosed(state.ws)) {
     state.ws = null;
   }
@@ -821,6 +990,10 @@ if (typeof window !== 'undefined' &&
 }
 
 export function disconnect() {
+  if (isSessionRuntimeActive()) {
+    runtimeDisconnect();
+    return;
+  }
   state.userDisconnected = true;
   if (state.reconnectTimer) {
     clearTimeout(state.reconnectTimer);

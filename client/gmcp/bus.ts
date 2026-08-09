@@ -98,6 +98,18 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/** Formats Typia validation errors for GMCP dispatch logging. */
+function formatGmcpValidationErrors(
+  errors: ReadonlyArray<{ path: string; expected: string; value: unknown }>,
+): string {
+  return errors
+    .map(
+      (error) =>
+        `${error.path || "$input"}: expected ${error.expected}, got ${JSON.stringify(error.value)}`,
+    )
+    .join("; ");
+}
+
 function normalizeSupports(payload: unknown): Record<string, string | number> {
   const normalized = normalizeSupportsPayload(payload);
   const supports: Record<string, string | number> = {};
@@ -201,8 +213,10 @@ class SessionGmcpBusImpl implements SessionGmcpBus {
     if (validator) {
       const result = validator(data);
       if (!result.success) {
-        this.#diagnostics.recordSuppressedEvent();
-        return;
+        console.error(
+          `GMCP validation failed for ${packageName}: ${formatGmcpValidationErrors(result.errors)}`,
+          data,
+        );
       }
     }
 

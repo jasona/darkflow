@@ -282,10 +282,16 @@ function createSessionHarness(modules, t, graph, characterProfileId, options = {
         },
       },
       now: () => nowMs,
+      onText: options.onText ?? (() => {}),
     },
   );
 
   assert.equal(result.success, true);
+  assert.ok(result.handles);
+  assert.ok(result.handles.transport);
+  assert.ok(result.handles.gmcp);
+  assert.ok(result.handles.scope);
+  assert.ok(result.handles.automationRuntime);
   const session = result.data;
 
   t.after(() => {
@@ -361,6 +367,7 @@ test("factory rejects unknown or mismatched profiles before claiming", async (t)
     appOrigin: "http://localhost:3000",
     webSocketFactory: (url) => new FakeWebSocket(url),
     onlineTarget: { addEventListener() {} },
+    onText: () => {},
   };
 
   const unknownServer = modules.createSessionFromState(
@@ -418,6 +425,7 @@ test("duplicate live session throws without constructing resources", async (t) =
         appOrigin: "http://localhost:3000",
         webSocketFactory: (url) => new FakeWebSocket(url),
         onlineTarget: { addEventListener() {} },
+        onText: () => {},
       }),
     (error) => error.name === "DuplicateLiveSessionError",
   );

@@ -1,8 +1,9 @@
 import { state, dom, initDom } from './state.js';
 import { gmcp } from './gmcp.js';
-import { appendSystemMessage, initOutput } from './output.js';
+import { appendOutput, appendSystemMessage, initOutput } from './output.js';
 import { panelManager } from './panel-manager.js';
-import { connect, getWsDebugSnapshot, retryNow, ensureConnected } from './connection.js';
+import { connect, getWsDebugSnapshot, retryNow, ensureConnected, wireActiveSessionLifecycle } from './connection.js';
+import { isSessionRuntimeActive, markLegacyUiReady, bindLegacyUiTargets, bindSessionTextOutput } from './session-compat/runtime.js';
 import { connectionOverlay } from './connection-overlay.js';
 import { loadHistory, saveHistory, saveHistoryNow, initInput } from './input.js';
 import { windowManager } from './window-manager.js';
@@ -38,6 +39,12 @@ import { streetSamuraiDashboardManager } from './street-samurai-dashboard-manage
 // ── Initialize DOM refs ─────────────────────────────────────────────
 initDom();
 initOutput();
+if (isSessionRuntimeActive()) {
+  bindSessionTextOutput(appendOutput);
+  bindLegacyUiTargets(state, dom);
+  markLegacyUiReady();
+  wireActiveSessionLifecycle();
+}
 
 const startupUrlParams = new URLSearchParams(window.location.search);
 const wsDebugEnabled = startupUrlParams.get('debugWs') === '1';

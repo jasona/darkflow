@@ -495,6 +495,9 @@ session disposal cancels all delayed automation.
 
 ### Step 13 - Cut the current UI over through one-session compatibility facades
 
+Detailed implementation plan:
+[`multi-connection-ui-phase-1-step-13-implementation-plan.md`](multi-connection-ui-phase-1-step-13-implementation-plan.md).
+
 **Files:** `client/app/bootstrap.ts`, `public/js/state.js`, `gmcp.js`,
 `connection.js`, `app.js`, `settings-manager.js`, new
 `public/js/session-compat/runtime.js`, bootstrap/browser tests
