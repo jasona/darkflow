@@ -3,22 +3,23 @@
 // a time and verified against the next authoritative room-id GMCP frame.
 import * as mapData from './map-data-v2.js';
 import { gmcp } from './gmcp.js';
+import { disposeControllerLifecycle, installControllerLifecycle } from './session-compat/controllers.js';
 
 const DEFAULT_STEP_TIMEOUT_MS = 5000;
 
 let config = null; // { send, rerender, stepTimeoutMs } from initSpeedwalk
 let walk = null;   // { steps, index, targetName } while active
 let stepTimer = null;
+const speedwalkController = {};
 
 export function initSpeedwalk(options) {
-  const first = !config;
   config = Object.assign({
     send: () => false,
     rerender: () => {},
     stepTimeoutMs: DEFAULT_STEP_TIMEOUT_MS,
   }, options);
-  if (first) {
-    gmcp.on('Darkwind.MapData2.Current', (data) => {
+  return installControllerLifecycle(speedwalkController, 'map-speedwalk', gmcp, (scopedGmcp, lifecycle) => {
+    scopedGmcp.on('Darkwind.MapData2.Current', (data) => {
       if (activeSource() !== mapData) return;
       if (data && data.id !== undefined && data.id !== null) {
         const roomId = String(data.id);
@@ -31,7 +32,7 @@ export function initSpeedwalk(options) {
         });
       }
     });
-    gmcp.on('Room.Info', (data) => {
+    scopedGmcp.on('Room.Info', (data) => {
       if (activeSource() === mapData) return;
       const id = data && (data.num !== undefined ? data.num
         : data.id !== undefined ? data.id
@@ -44,11 +45,19 @@ export function initSpeedwalk(options) {
       }
     });
     if (typeof document !== 'undefined') {
-      document.addEventListener('dw:connectionstate', (event) => {
+      lifecycle.listen(document, 'dw:connectionstate', (event) => {
         if (!event.detail || event.detail.state !== 'connected') cancelSpeedwalk('disconnected');
       });
     }
-  }
+  }, () => {
+    cancelSpeedwalk();
+    clearStepTimer();
+    config = null;
+  });
+}
+
+export function disposeSpeedwalk() {
+  disposeControllerLifecycle(speedwalkController);
 }
 
 // Shortest known route from -> to as [{dir, destId}], or null. Same-area

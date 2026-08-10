@@ -23,6 +23,7 @@ import {
   diagnose,
   chipStatus,
 } from './lag-core.mjs';
+import { createControllerLifecycle, disposeControllerLifecycle } from './session-compat/controllers.js';
 
 const PING_INTERVAL_MS = 5000;
 const HTTP_INTERVAL_MS = 30000;
@@ -55,13 +56,27 @@ export const lagMonitor = {
   _lastDiagnosis: null,
 
   init() {
+    if (this._controllerLifecycle) return this._controllerLifecycle.dispose;
+    const lifecycle = createControllerLifecycle('lag-monitor', () => {
+      this._controllerLifecycle = null;
+      this._correlator.abort();
+      this._stopProbes();
+      if (this._localTimer) clearInterval(this._localTimer);
+      this._localTimer = null;
+      if (this._longTaskObserver) this._longTaskObserver.disconnect();
+      this._longTaskObserver = null;
+      this._connected = false;
+    });
+    this._controllerLifecycle = lifecycle;
+    const scopedGmcp = lifecycle.bindGmcp(gmcp);
+
     if (dom.statusLatency) {
-      dom.statusLatency.addEventListener('click', () => {
+      lifecycle.listen(dom.statusLatency, 'click', () => {
         document.dispatchEvent(new CustomEvent('dw:lag-open-panel'));
       });
     }
 
-    document.addEventListener('dw:connectionstate', (event) => {
+    lifecycle.listen(document, 'dw:connectionstate', (event) => {
       const wasConnected = this._connected;
       this._connected = event.detail && event.detail.state === 'connected';
       if (this._connected && !wasConnected) {
@@ -76,8 +91,8 @@ export const lagMonitor = {
       }
     });
 
-    document.addEventListener('dw:lag-run-check', () => this.runFullCheck());
-    document.addEventListener('visibilitychange', () => {
+    lifecycle.listen(document, 'dw:lag-run-check', () => this.runFullCheck());
+    lifecycle.listen(document, 'visibilitychange', () => {
       if (document.hidden) {
         this._correlator.abort();
         this._stopProbes();
@@ -88,7 +103,7 @@ export const lagMonitor = {
       }
     });
 
-    gmcp.on('Core.Ping', () => {
+    scopedGmcp.on('Core.Ping', () => {
       const rtt = this._correlator.onEcho(now());
       if (rtt !== null) {
         this._mudRing.push({ t: now(), rtt: Math.round(rtt) });
@@ -96,7 +111,7 @@ export const lagMonitor = {
       }
     });
 
-    gmcp.on('Darkwind.Lag.Status', (data) => {
+    scopedGmcp.on('Darkwind.Lag.Status', (data) => {
       if (data && typeof data === 'object') {
         this._serverStatus = data;
         this._serverPollMisses = 0;
@@ -110,6 +125,7 @@ export const lagMonitor = {
           for (const entry of list.getEntries()) this._longTaskMs += entry.duration;
         });
         this._longTaskObserver.observe({ entryTypes: ['longtask'] });
+        lifecycle.ownObserver(this._longTaskObserver);
       } catch (e) { /* longtask unsupported (non-Chromium) - drift sensor covers it */ }
     }
 
@@ -117,6 +133,15 @@ export const lagMonitor = {
     // sweep, and the chip refresher.
     this._lastLocalTick = now();
     this._localTimer = setInterval(() => this._localTick(), LOCAL_TICK_MS);
+    lifecycle.own('timer', () => {
+      if (this._localTimer) clearInterval(this._localTimer);
+      this._localTimer = null;
+    });
+    return lifecycle.dispose;
+  },
+
+  dispose() {
+    disposeControllerLifecycle(this);
   },
 
   _enabled() {

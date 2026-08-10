@@ -95,6 +95,21 @@ test("built artifact renders the legacy client and preserves production contract
     )
     .toBe("legacy-loaded");
 
+  const controllerDiagnostics = await page.evaluate(() =>
+    (
+      window as unknown as {
+        __darkflowPhase1ControllerBridge?: {
+          getControllerDiagnostics(): {
+            activeControllers: number;
+            session: { liveSubscriptions: number };
+          };
+        };
+      }
+    ).__darkflowPhase1ControllerBridge?.getControllerDiagnostics(),
+  );
+  expect(controllerDiagnostics?.activeControllers).toBe(22);
+  expect(controllerDiagnostics?.session.liveSubscriptions).toBeGreaterThanOrEqual(109);
+
   await expect
     .poll(() =>
       page.evaluate(() => {

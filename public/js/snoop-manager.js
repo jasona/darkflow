@@ -1,5 +1,6 @@
 import { gmcp } from './gmcp.js';
 import { parseAnsiText, styleToElement } from './ansi.js';
+import { disposeControllerLifecycle, installControllerLifecycle } from './session-compat/controllers.js';
 
 const PKG_OPEN = 'Darkwind.Snoop.Open';
 const PKG_APPEND = 'Darkwind.Snoop.Append';
@@ -44,10 +45,16 @@ export const snoopManager = {
   lineCount: 0,
 
   init() {
-    gmcp.on(PKG_OPEN, data => this.open(data || {}));
-    gmcp.on(PKG_APPEND, data => this.append(data || {}));
-    gmcp.on(PKG_STATUS, data => this.status(data || {}));
-    gmcp.on(PKG_CLOSE, data => this.close(data || {}));
+    return installControllerLifecycle(this, 'snoop', gmcp, (scopedGmcp) => {
+      scopedGmcp.on(PKG_OPEN, data => this.open(data || {}));
+      scopedGmcp.on(PKG_APPEND, data => this.append(data || {}));
+      scopedGmcp.on(PKG_STATUS, data => this.status(data || {}));
+      scopedGmcp.on(PKG_CLOSE, data => this.close(data || {}));
+    }, () => this.close({ localOnly: true }));
+  },
+
+  dispose() {
+    disposeControllerLifecycle(this);
   },
 
   open(data) {

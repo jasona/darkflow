@@ -14,7 +14,7 @@ import type { SessionGmcpBus } from "../gmcp/bus.ts";
 import type { Session } from "../runtime/session.ts";
 import type { SessionFacadeHandles } from "../runtime/session-factory.ts";
 import type { TransportReconnectStatusPayload } from "../transport/types.ts";
-import type { TransportEndpoint, TransportState } from "../transport/types.ts";
+import type { TransportState } from "../transport/types.ts";
 import {
   resolveLegacyToolbarEndpoint,
   readLiveToolbarEndpointInput,
@@ -181,6 +181,34 @@ export function buildAutomationCompatBridge(handles: SessionFacadeHandles) {
       effectiveTimers: Parameters<typeof runtime.reconcileTimers>[0],
       onStart: Parameters<typeof runtime.reconcileTimers>[1],
     ) => runtime.reconcileTimers(effectiveTimers, onStart),
+  };
+}
+
+/** Builds controller child scopes without exposing the root session scope to legacy code. */
+export function buildControllerCompatBridge(handles: SessionFacadeHandles) {
+  return {
+    createScope(onDisposeStart: () => void) {
+      const child = handles.scope.createChildScope();
+      let disposed = false;
+      const releaseStart = handles.scope.own("teardown", () => {
+        if (disposed) return;
+        disposed = true;
+        onDisposeStart();
+      });
+
+      return {
+        own: child.own.bind(child),
+        setTimeout: child.setTimeout.bind(child),
+        setInterval: child.setInterval.bind(child),
+        requestAnimationFrame: child.requestAnimationFrame.bind(child),
+        dispose() {
+          if (disposed) return;
+          releaseStart();
+          child.dispose();
+        },
+      };
+    },
+    getDiagnostics: () => handles.getLifecycleDiagnostics(),
   };
 }
 

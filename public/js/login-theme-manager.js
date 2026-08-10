@@ -1,5 +1,6 @@
 import { soundManager } from './sound-manager.js';
 import { gmcp } from './gmcp.js';
+import { disposeControllerLifecycle, installControllerLifecycle } from './session-compat/controllers.js';
 
 export const LOGIN_THEME = Object.freeze({
   category: 'ambient',
@@ -25,16 +26,24 @@ export class LoginThemeManager {
   }
 
   init() {
-    if (this.initialized) return;
-    this.initialized = true;
-    this.authWindowHandler = (event) => {
-      this.setAuthActive(!!(event.detail && event.detail.open));
-    };
-    this.characterAttachedHandler = () => this.handleCharacterAttached();
-    document.addEventListener('dw:authwindowchange', this.authWindowHandler);
-    this.gmcp.on('Char.Vitals', this.characterAttachedHandler);
-    this.gmcp.on('Char.Status', this.characterAttachedHandler);
-    this.gmcp.on('Darkwind.Session.Recovered', this.characterAttachedHandler);
+    return installControllerLifecycle(this, 'login-theme', this.gmcp, (scopedGmcp, lifecycle) => {
+      this.initialized = true;
+      this.authWindowHandler = (event) => {
+        this.setAuthActive(!!(event.detail && event.detail.open));
+      };
+      this.characterAttachedHandler = () => this.handleCharacterAttached();
+      lifecycle.listen(document, 'dw:authwindowchange', this.authWindowHandler);
+      scopedGmcp.on('Char.Vitals', this.characterAttachedHandler);
+      scopedGmcp.on('Char.Status', this.characterAttachedHandler);
+      scopedGmcp.on('Darkwind.Session.Recovered', this.characterAttachedHandler);
+    }, () => {
+      this._cancelPendingStop();
+      this._stopTheme();
+      this.authActive = false;
+      this.authWindowHandler = null;
+      this.characterAttachedHandler = null;
+      this.initialized = false;
+    });
   }
 
   setAuthActive(active) {
@@ -80,20 +89,7 @@ export class LoginThemeManager {
   }
 
   destroy() {
-    this._cancelPendingStop();
-    if (this.authWindowHandler) {
-      document.removeEventListener('dw:authwindowchange', this.authWindowHandler);
-      this.authWindowHandler = null;
-    }
-    if (this.characterAttachedHandler) {
-      this.gmcp.off('Char.Vitals', this.characterAttachedHandler);
-      this.gmcp.off('Char.Status', this.characterAttachedHandler);
-      this.gmcp.off('Darkwind.Session.Recovered', this.characterAttachedHandler);
-      this.characterAttachedHandler = null;
-    }
-    this._stopTheme();
-    this.authActive = false;
-    this.initialized = false;
+    disposeControllerLifecycle(this);
   }
 }
 

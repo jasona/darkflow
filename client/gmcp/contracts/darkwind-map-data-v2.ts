@@ -1,22 +1,28 @@
+/** JSON boolean or the 0/1 integer emitted by LDMud. */
+export type MapData2WireBoolean = boolean | 0 | 1;
+
+/** Stable room identifier. LDMud emits numeric ids; cached/foreign ids may be strings. */
+export type MapData2RoomId = string | number;
+
 /** Shared MapData2 room record (docs/gmcp-darkwind-mapdata-v2.md:33-53). */
 export interface MapData2RoomRecord {
-  id: string;
+  id: MapData2RoomId;
   name?: string;
   area?: string;
   env?: string;
-  observed?: boolean;
+  observed?: MapData2WireBoolean;
   observedAt?: number;
   layoutState?: string;
-  positioned?: boolean;
+  positioned?: MapData2WireBoolean;
   x?: number;
   y?: number;
   z?: number;
   coordSource?: string;
   version?: number;
-  exits?: Record<string, string>;
+  exits?: Record<string, MapData2RoomId>;
   exitKinds?: Record<string, string>;
   exitDoors?: Record<string, number>;
-  walkSafe?: Record<string, boolean>;
+  walkSafe?: Record<string, MapData2WireBoolean>;
   details?: string[];
   [key: string]: unknown;
 }
@@ -28,7 +34,7 @@ export interface MapData2Current extends MapData2RoomRecord {
   areaGeneration?: number;
   areaVersion?: number;
   areaName?: string;
-  liveExits?: Record<string, string>;
+  liveExits?: Record<string, MapData2RoomId>;
   liveDoors?: Record<string, number>;
 }
 
@@ -37,8 +43,8 @@ export interface MapData2Area {
   area: string;
   rooms: MapData2RoomRecord[];
   version?: number;
-  more?: boolean;
-  replace?: boolean;
+  more?: MapData2WireBoolean;
+  replace?: MapData2WireBoolean;
   areaGeneration?: number;
   mapEpoch?: string;
   [key: string]: unknown;
@@ -54,18 +60,18 @@ export interface MapData2Update {
   snapshotVersion?: number;
   latestVersion?: number;
   cursor?: string | number;
-  complete?: boolean;
-  replace?: boolean;
+  complete?: MapData2WireBoolean;
+  replace?: MapData2WireBoolean;
   rooms?: MapData2RoomRecord[];
   version?: number;
   offset?: number;
-  more?: boolean;
+  more?: MapData2WireBoolean;
   [key: string]: unknown;
 }
 
 /** Darkwind.MapData2.Error inbound payload (docs/gmcp-darkwind-mapdata-v2.md:122-124). */
 export interface MapData2Error {
-  restart?: boolean;
+  restart?: MapData2WireBoolean;
   retryAfterMs?: number;
   [key: string]: unknown;
 }
@@ -74,9 +80,10 @@ export interface MapData2Error {
 export interface MapData2BrowseArea {
   catalog: string;
   name?: string;
-  center?: MapData2RoomRecord;
+  center?: MapData2RoomId;
   rooms?: MapData2RoomRecord[];
-  more?: boolean;
+  more?: MapData2WireBoolean;
+  replace?: MapData2WireBoolean;
   offset?: number;
   [key: string]: unknown;
 }

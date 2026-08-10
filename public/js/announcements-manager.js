@@ -1,6 +1,7 @@
 import { gmcp } from './gmcp.js';
 import { dom } from './state.js';
 import { renderAnnouncementMarkdown } from './announcement-markdown.js';
+import { disposeControllerLifecycle, installControllerLifecycle } from './session-compat/controllers.js';
 
 const PKG_LIST = 'Darkwind.Announcements.List';
 const PKG_NEW = 'Darkwind.Announcements.New';
@@ -82,13 +83,19 @@ export const announcementsManager = {
   },
 
   init() {
-    this.mount();
-    this.bindButton();
-    gmcp.on(PKG_LIST, (data) => this.handleList(data));
-    gmcp.on(PKG_NEW, (data) => this.handleNew(data));
-    gmcp.on(PKG_UPDATE, (data) => this.handleUpdate(data));
-    gmcp.on(PKG_STATE, (data) => this.handleState(data));
-    this.render();
+    return installControllerLifecycle(this, 'announcements', gmcp, (scopedGmcp) => {
+      this.mount();
+      this.bindButton();
+      scopedGmcp.on(PKG_LIST, (data) => this.handleList(data));
+      scopedGmcp.on(PKG_NEW, (data) => this.handleNew(data));
+      scopedGmcp.on(PKG_UPDATE, (data) => this.handleUpdate(data));
+      scopedGmcp.on(PKG_STATE, (data) => this.handleState(data));
+      this.render();
+    }, () => this.close());
+  },
+
+  dispose() {
+    disposeControllerLifecycle(this);
   },
 
   mount() {
@@ -183,7 +190,7 @@ export const announcementsManager = {
       if (event.target === overlay) this.close();
     });
 
-    document.addEventListener('keydown', (event) => {
+    this._controllerLifecycle.listen(document, 'keydown', (event) => {
       if (event.key === 'Escape' && overlay.classList.contains('open')) {
         this.close();
       }
@@ -202,7 +209,7 @@ export const announcementsManager = {
 
   bindButton() {
     if (!dom.announcementsBtn) return;
-    dom.announcementsBtn.addEventListener('click', () => this.open());
+    this._controllerLifecycle.listen(dom.announcementsBtn, 'click', () => this.open());
   },
 
   currentItems() {

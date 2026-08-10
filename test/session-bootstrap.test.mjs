@@ -126,6 +126,7 @@ function createBootHarness(modules, options = {}) {
     configuration: null,
     automation: null,
     runtime: null,
+    controllers: null,
   };
 
   const compatFactory = () => ({
@@ -138,6 +139,9 @@ function createBootHarness(modules, options = {}) {
     installSessionRuntimeBridge(bridge) {
       installed.runtime = bridge;
     },
+    installControllerCompatBridge(bridge) {
+      installed.controllers = bridge;
+    },
     resetConfigurationCompatBridgeForTests() {
       installed.configuration = null;
     },
@@ -146,6 +150,9 @@ function createBootHarness(modules, options = {}) {
     },
     resetSessionRuntimeBridgeForTests() {
       installed.runtime = null;
+    },
+    resetControllerCompatBridgeForTests() {
+      installed.controllers = null;
     },
   });
 
@@ -167,7 +174,7 @@ function createBootHarness(modules, options = {}) {
   };
 
   const importModule = async (entry) => {
-    if (entry.endsWith("configuration.js") || entry.endsWith("automation.js") || entry.endsWith("runtime.js")) {
+    if (entry.endsWith("configuration.js") || entry.endsWith("automation.js") || entry.endsWith("runtime.js") || entry.endsWith("controllers.js")) {
       return compatFactory();
     }
     if (entry.endsWith("state.js")) {
@@ -340,6 +347,7 @@ test("MH10 CMH3 post-create failure disposes session and clears runtime slot", a
   assert.equal(harness.sessionDiagnostic, null);
   assert.equal(harness.installed.configuration, null);
   assert.equal(harness.installed.runtime, null);
+  assert.equal(harness.installed.controllers, null);
 });
 
 test("CMH1 bridge install performs no DOM connection state write before markLegacyUiReady", async (t) => {

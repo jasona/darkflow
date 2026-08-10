@@ -3,6 +3,7 @@ import typia from "typia";
 import {
   buildAutomationCompatBridge,
   buildConfigurationCompatBridge,
+  buildControllerCompatBridge,
   buildSessionRuntimeCompatBridge,
   resolveActiveCharacterProfileId,
   type LegacyStateMirror,
@@ -46,6 +47,7 @@ export interface InstalledCompatBridges {
   configuration: unknown;
   automation: unknown;
   runtime: unknown;
+  controllers: unknown;
 }
 
 const validateBootstrapDiagnostic = typia.createValidate<BootstrapDiagnostic>();
@@ -54,9 +56,11 @@ export interface CompatModule {
   installConfigurationCompatBridge?: (bridge: unknown) => void;
   installAutomationCompatBridge?: (bridge: unknown) => void;
   installSessionRuntimeBridge?: (bridge: unknown) => void;
+  installControllerCompatBridge?: (bridge: unknown) => void;
   resetConfigurationCompatBridgeForTests: () => void;
   resetAutomationCompatBridgeForTests: () => void;
   resetSessionRuntimeBridgeForTests: () => void;
+  resetControllerCompatBridgeForTests: () => void;
 }
 
 export interface BootstrapLegacyState extends LegacyStateMirror {
@@ -122,15 +126,17 @@ export function clearPhase1RuntimeSlot(
   delete target.__darkflowPhase1Runtime;
 }
 
-/** Resets all three installed compatibility bridges. */
+/** Resets every installed compatibility bridge. */
 export function resetInstalledCompatBridges(
   configCompat: CompatModule,
   automationCompat: CompatModule,
   runtimeCompat: CompatModule,
+  controllerCompat: CompatModule,
 ): void {
   configCompat.resetConfigurationCompatBridgeForTests();
   automationCompat.resetAutomationCompatBridgeForTests();
   runtimeCompat.resetSessionRuntimeBridgeForTests();
+  controllerCompat.resetControllerCompatBridgeForTests();
 }
 
 /** Validates and publishes the coarse bootstrap phase diagnostic. */
@@ -191,6 +197,9 @@ export async function runBootTransaction(
     "/js/session-compat/automation.js",
   );
   const runtimeCompat = await deps.importModule<CompatModule>("/js/session-compat/runtime.js");
+  const controllerCompat = await deps.importModule<CompatModule>(
+    "/js/session-compat/controllers.js",
+  );
 
   let createdSession: Session | null = null;
 
@@ -308,6 +317,7 @@ export async function runBootTransaction(
       }),
       dom,
     );
+    const controllerBridge = buildControllerCompatBridge(handles);
 
     const registerGmcpVariables = gmcpVariables.registerGmcpVariables;
     handles.gmcp.on("*", registerGmcpVariables);
@@ -323,6 +333,7 @@ export async function runBootTransaction(
         textOutputSink.bind(appendOutput);
       },
     });
+    controllerCompat.installControllerCompatBridge?.(controllerBridge);
 
     const record: Phase1RuntimeRecord = {
       session: createdSession,
@@ -344,7 +355,7 @@ export async function runBootTransaction(
 
     return { kind: "created", record };
   } catch (error) {
-    resetInstalledCompatBridges(configCompat, automationCompat, runtimeCompat);
+    resetInstalledCompatBridges(configCompat, automationCompat, runtimeCompat, controllerCompat);
 
     if (createdSession && !createdSession.disposed) {
       createdSession.dispose();

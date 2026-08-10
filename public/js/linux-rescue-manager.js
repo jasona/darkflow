@@ -1,4 +1,5 @@
 import { gmcp } from './gmcp.js';
+import { disposeControllerLifecycle, installControllerLifecycle } from './session-compat/controllers.js';
 import { dom } from './state.js';
 import {
   createLinuxRescueState,
@@ -26,9 +27,15 @@ export const linuxRescueManager = {
 
   init() {
     if (typeof document === 'undefined') return;
-    this.mount();
-    gmcp.on(PKG_OPEN, (data) => this.show(data));
-    document.addEventListener('keydown', (event) => this.handleDocumentKeydown(event), true);
+    return installControllerLifecycle(this, 'linux-rescue', gmcp, (scopedGmcp, lifecycle) => {
+      this.mount();
+      scopedGmcp.on(PKG_OPEN, (data) => this.show(data));
+      lifecycle.listen(document, 'keydown', (event) => this.handleDocumentKeydown(event), true);
+    }, () => this.hide());
+  },
+
+  dispose() {
+    disposeControllerLifecycle(this);
   },
 
   mount() {

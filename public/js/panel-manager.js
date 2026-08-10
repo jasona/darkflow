@@ -1,8 +1,9 @@
-import { gmcp } from './gmcp.js';
+import { gmcp as sharedGmcp } from './gmcp.js';
 import { state as appState } from './state.js';
 import { PANEL_DEFS, PANEL_STORAGE_KEY } from './panel-defs.js';
 import { openPaneFontSettings } from './pane-settings.js';
 import { panelRenderers, updateCyberwareModalDetails, updateCyberwareModalImage } from './panel-renderers.js';
+import { createControllerLifecycle, disposeControllerLifecycle } from './session-compat/controllers.js';
 import {
   MAP_ZOOM_LEVELS,
   formatMapZoom,
@@ -26,14 +27,19 @@ import {
   beginGlobalReset as beginMapData2GlobalReset,
   load as loadMapData2,
   processSyncError as processMapData2Error,
+  disposeMapDataLifecycle as disposeMapData2Lifecycle,
 } from './map-data-v2.js';
-import { load as loadGenericMapData } from './map-data-gmcp.js';
+import {
+  disposeMapDataLifecycle as disposeGenericMapDataLifecycle,
+  load as loadGenericMapData,
+} from './map-data-gmcp.js';
 import {
   markMapData2Active,
   markMapData2Unavailable,
   processGenericHello,
   processGenericRoomInfo,
   resetLiveMapModeForConnection,
+  disposeLiveMapSourceLifecycle,
 } from './live-map-source.js';
 
 const MOBILE_BREAKPOINT_PX = 700;
@@ -106,6 +112,19 @@ function chatMessageKey(message) {
   return channel + '\n' + talker + '\n' + text;
 }
 
+let scopedGmcp = null;
+const gmcp = new Proxy({}, {
+  get(_target, property) {
+    const target = scopedGmcp || sharedGmcp;
+    const value = Reflect.get(target, property, target);
+    return typeof value === 'function' ? value.bind(target) : value;
+  },
+  set(_target, property, value) {
+    const target = scopedGmcp || sharedGmcp;
+    return Reflect.set(target, property, value, target);
+  },
+});
+
 export const panelManager = {
   state: { docks: { left: false, right: false }, panels: {} },
   panels: {},
@@ -151,11 +170,21 @@ export const panelManager = {
   },
 
   init() {
+    if (this._controllerLifecycle) return this._controllerLifecycle.dispose;
+    const lifecycle = createControllerLifecycle('panels', () => {
+      this._disposeControllerResources();
+      this._controllerLifecycle = null;
+      scopedGmcp = null;
+    });
+    this._controllerLifecycle = lifecycle;
+    scopedGmcp = lifecycle.bindGmcp(sharedGmcp);
+
     if (appState.zorkOnlyMode) {
       this.disableForZorkOnlyMode();
       this._hydrateMapCaches();
       this.registerGmcpHandlers();
-      return;
+      this._initialized = true;
+      return lifecycle.dispose;
     }
 
     this._workspaceLayout = this._getRequestedWorkspaceLayout();
@@ -185,22 +214,53 @@ export const panelManager = {
     this._attachResizeHandler();
     this._syncResponsiveMode(true);
     this._applyPaneFont(TERMINAL_PANEL_ID);
-    document.addEventListener('dw:connectionstate', (event) => {
+    lifecycle.listen(document, 'dw:connectionstate', (event) => {
       const connected = event.detail && event.detail.state === 'connected';
       if (connected) this._armSubscriptionSyncFallback();
       else this._clearSubscriptionSyncFallback();
     });
-    document.addEventListener('darkflow:map-source-changed', () => {
+    lifecycle.listen(document, 'darkflow:map-source-changed', () => {
       this._queuePanelRender('map');
     });
-    document.addEventListener('darkflow:room-playlist-state', (event) => {
+    lifecycle.listen(document, 'darkflow:room-playlist-state', (event) => {
       this.handleRoomPlaylistState(event.detail);
     });
-    document.addEventListener('darkflow:room-playlist-open', (event) => {
+    lifecycle.listen(document, 'darkflow:room-playlist-open', (event) => {
       this.handleRoomPlaylistOpen(event.detail);
     });
     this._initialized = true;
     this._notifyWorkspaceLayoutChanged();
+    return lifecycle.dispose;
+  },
+
+  dispose() {
+    disposeControllerLifecycle(this);
+  },
+
+  _disposeControllerResources() {
+    this._flushPendingStateSave();
+    this._clearSubscriptionSyncFallback();
+    if (this._saveTimer) clearTimeout(this._saveTimer);
+    if (this._subscriptionTimer) clearTimeout(this._subscriptionTimer);
+    if (this._buffTimer) clearInterval(this._buffTimer);
+    if (this._skyTimer) clearInterval(this._skyTimer);
+    if (this._avatarMeterTicker) clearInterval(this._avatarMeterTicker);
+    if (this._panelRenderFrame) cancelAnimationFrame(this._panelRenderFrame);
+    this._saveTimer = null;
+    this._subscriptionTimer = null;
+    this._buffTimer = null;
+    this._skyTimer = null;
+    this._avatarMeterTicker = null;
+    this._panelRenderFrame = null;
+    this._pendingPanelRenders.clear();
+    this._flushHandlersAttached = false;
+    disposeLiveMapSourceLifecycle();
+    disposeMapData2Lifecycle();
+    disposeGenericMapDataLifecycle();
+    for (const panel of Object.values(this.panels)) {
+      if (panel.mapResizeObserver) panel.mapResizeObserver.disconnect();
+    }
+    this._initialized = false;
   },
 
   handleRoomPlaylistState(data) {
@@ -663,8 +723,8 @@ export const panelManager = {
   _attachPersistenceFlushHandlers() {
     if (this._flushHandlersAttached) return;
     this._flushHandlersAttached = true;
-    window.addEventListener('pagehide', () => this._flushPendingStateSave());
-    document.addEventListener('visibilitychange', () => {
+    this._controllerLifecycle.listen(window, 'pagehide', () => this._flushPendingStateSave());
+    this._controllerLifecycle.listen(document, 'visibilitychange', () => {
       if (document.visibilityState === 'hidden') {
         this._flushPendingStateSave();
       }
@@ -1852,7 +1912,7 @@ export const panelManager = {
   },
 
   _attachResizeHandler() {
-    window.addEventListener('resize', () => {
+    this._controllerLifecycle.listen(window, 'resize', () => {
       this._syncResponsiveMode();
       if (!this._mobile.enabled) {
         this.repositionSnappedPanels();
@@ -3006,11 +3066,15 @@ export const panelManager = {
     drag.indicator = document.createElement('div');
     drag.indicator.className = 'dock-drop-indicator';
     document.body.appendChild(drag.indicator);
+    this._controllerLifecycle.own('teardown', () => {
+      drag.indicator.remove();
+      for (const edge of Object.values(snapEdges)) edge.remove();
+    });
 
     const THRESHOLD = 5;
     let pointerStarted = false;
 
-    document.addEventListener('pointerdown', (e) => {
+    this._controllerLifecycle.listen(document, 'pointerdown', (e) => {
       if (this._mobile.enabled) return;
       const panel = e.target.closest('.gmcp-panel-widget.floating');
       if (panel && panel.dataset.panelId) {
@@ -3040,7 +3104,7 @@ export const panelManager = {
       e.preventDefault();
     });
 
-    document.addEventListener('pointermove', (e) => {
+    this._controllerLifecycle.listen(document, 'pointermove', (e) => {
       if (!pointerStarted || this._mobile.enabled) return;
 
       const dx = e.clientX - drag.startX;
@@ -3106,7 +3170,7 @@ export const panelManager = {
       this._updateDropZone(drop, drag);
     });
 
-    document.addEventListener('pointerup', (e) => {
+    this._controllerLifecycle.listen(document, 'pointerup', (e) => {
       if (!pointerStarted) return;
       pointerStarted = false;
 
@@ -3380,13 +3444,16 @@ export const panelManager = {
   },
 
   registerGmcpHandlers() {
+    const listen = this._controllerLifecycle
+      ? this._controllerLifecycle.listen.bind(this._controllerLifecycle)
+      : (target, type, listener) => target.addEventListener(type, listener);
     // Connection Health panel: fed by lag-monitor via document events (not
     // GMCP) so the renderer and monitor stay decoupled.
-    document.addEventListener('dw:lag-update', (event) => {
+    listen(document, 'dw:lag-update', (event) => {
       this.gmcpData.connection = event.detail;
       this._renderPanel('connection');
     });
-    document.addEventListener('dw:lag-open-panel', () => {
+    listen(document, 'dw:lag-open-panel', () => {
       this.openPanel('connection');
     });
 

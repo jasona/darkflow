@@ -1,4 +1,5 @@
 import { gmcp } from './gmcp.js';
+import { disposeControllerLifecycle, installControllerLifecycle } from './session-compat/controllers.js';
 
 const PKG_SHOW = 'Darkwind.Giphy.Show';
 const DEFAULT_DURATION_MS = 10000;
@@ -27,8 +28,14 @@ export const giphyManager = {
   recentReplays: new Map(),
 
   init() {
-    this.mount();
-    gmcp.on(PKG_SHOW, (data) => this.show(data));
+    return installControllerLifecycle(this, 'giphy', gmcp, (scopedGmcp) => {
+      this.mount();
+      scopedGmcp.on(PKG_SHOW, (data) => this.show(data));
+    }, () => this.hide());
+  },
+
+  dispose() {
+    disposeControllerLifecycle(this);
   },
 
   mount() {

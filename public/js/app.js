@@ -1,5 +1,6 @@
 import { state, dom, initDom } from './state.js';
 import { gmcp } from './gmcp.js';
+import { createControllerLifecycle } from './session-compat/controllers.js';
 import { appendOutput, appendSystemMessage, initOutput } from './output.js';
 import { panelManager } from './panel-manager.js';
 import { connect, getWsDebugSnapshot, retryNow, ensureConnected, wireActiveSessionLifecycle } from './connection.js';
@@ -35,6 +36,8 @@ import { PRODUCT_NAME, gameTitle } from './brand.js';
 import { initRfc2549Debug } from './rfc2549-debug.js';
 import { initializeDesktopUpdates } from './desktop-integration.js';
 import { streetSamuraiDashboardManager } from './street-samurai-dashboard-manager.js';
+
+const appGmcp = createControllerLifecycle('app-gmcp').bindGmcp(gmcp);
 
 // ── Initialize DOM refs ─────────────────────────────────────────────
 initDom();
@@ -293,7 +296,7 @@ if (gmcpDebugEnabled) {
   setGmcpDebugVisible(true);
 }
 
-gmcp.on('*', function(packageName, data) {
+appGmcp.on('*', function(packageName, data) {
   if (wsDebugEnabled) {
     console.log('[GMCP]', packageName, data);
   }
@@ -356,7 +359,7 @@ function setClientVersion(version) {
   updateVersionDisplay();
 }
 
-gmcp.on('Game', function(data) {
+appGmcp.on('Game', function(data) {
   if (data && data.game_uptime !== undefined) {
     dom.statusUptime.textContent = 'Uptime: ' + formatUptime(data.game_uptime);
   }

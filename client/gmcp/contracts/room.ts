@@ -8,13 +8,13 @@ export interface RoomInfo {
   environment?: string;
   terrain?: string;
   env?: string;
-  coords?: { x?: number; y?: number; z?: number };
+  coords?: { x?: number; y?: number; z?: number } | "";
   coord_x?: number;
   coord_y?: number;
   coord_z?: number;
-  exits?: Record<string, string | number>;
+  exits?: Record<string, string | number> | "";
   exit_states?: Record<string, string>;
-  details?: Record<string, unknown>;
+  details?: Record<string, unknown> | string[] | "";
   [key: string]: unknown;
 }
 
@@ -26,7 +26,7 @@ export interface RoomPlayer {
 }
 
 /** Room.Players payload (docs/gmcp-room.md:54-60). */
-export type RoomPlayers = RoomPlayer[];
+export type RoomPlayers = RoomPlayer[] | "";
 
 /** Room.AddPlayer payload (docs/gmcp-room.md:62). */
 export type RoomAddPlayer = RoomPlayer;

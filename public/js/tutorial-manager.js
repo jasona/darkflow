@@ -1,5 +1,6 @@
 import { gmcp } from './gmcp.js';
 import { dom, state as appState } from './state.js';
+import { createControllerLifecycle, disposeControllerLifecycle } from './session-compat/controllers.js';
 import {
   buildTutorialAction,
   createTutorialState,
@@ -119,7 +120,20 @@ export const tutorialManager = {
   },
 
   init() {
-    if (this.initialized) return;
+    if (this._controllerLifecycle) return this._controllerLifecycle.dispose;
+    const lifecycle = createControllerLifecycle('tutorial', () => {
+      this._clearPendingTimer();
+      this._clearRenderRecovery();
+      if (this._repositionFrame) cancelAnimationFrame(this._repositionFrame);
+      this._repositionFrame = null;
+      if (this._resizeObserver) this._resizeObserver.disconnect();
+      this._resizeObserver = null;
+      this._discardMount();
+      this.initialized = false;
+      this._controllerLifecycle = null;
+    });
+    this._controllerLifecycle = lifecycle;
+    const scopedGmcp = lifecycle.bindGmcp(gmcp);
     try {
       this.mount();
       this.renderHealthy = !!this.els.card;
@@ -129,23 +143,29 @@ export const tutorialManager = {
       this._scheduleRenderRecovery();
     }
 
-    gmcp.on(STATE_PACKAGE, (payload) => this.handleState(payload));
-    gmcp.on(CONTROL_PACKAGE, (payload) => this.handleControl(payload));
-    gmcp.on(SESSION_RECOVERED_PACKAGE, () => this.handleSessionRecovered());
+    scopedGmcp.on(STATE_PACKAGE, (payload) => this.handleState(payload));
+    scopedGmcp.on(CONTROL_PACKAGE, (payload) => this.handleControl(payload));
+    scopedGmcp.on(SESSION_RECOVERED_PACKAGE, () => this.handleSessionRecovered());
 
     if (typeof window !== 'undefined' && window.addEventListener) {
-      window.addEventListener('resize', () => this.requestReposition());
-      window.addEventListener('darkflow:output-layout-changed', () => this.requestReposition());
-      window.addEventListener('darkflow:workspace-layout-changed', () => this.requestReposition());
+      lifecycle.listen(window, 'resize', () => this.requestReposition());
+      lifecycle.listen(window, 'darkflow:output-layout-changed', () => this.requestReposition());
+      lifecycle.listen(window, 'darkflow:workspace-layout-changed', () => this.requestReposition());
     }
 
     if (typeof ResizeObserver === 'function' && dom.outputShell) {
       this._resizeObserver = new ResizeObserver(() => this.requestReposition());
       this._resizeObserver.observe(dom.outputShell);
+      lifecycle.ownObserver(this._resizeObserver);
     }
 
     this.initialized = true;
     this._syncReadiness('tutorial-manager-init');
+    return lifecycle.dispose;
+  },
+
+  dispose() {
+    disposeControllerLifecycle(this);
   },
 
   mount() {

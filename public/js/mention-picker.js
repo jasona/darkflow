@@ -1,4 +1,5 @@
 import { gmcp } from './gmcp.js';
+import { disposeControllerLifecycle, installControllerLifecycle } from './session-compat/controllers.js';
 import {
   detectChannelCommand,
   findMentionToken,
@@ -59,6 +60,7 @@ let rosterRequestCount = 0;
 let rosterResponseCount = 0;
 let rosterTimeoutCount = 0;
 let lastRosterRequestSent = false;
+const mentionController = {};
 
 function ensurePicker() {
   if (pickerEl) return pickerEl;
@@ -241,36 +243,35 @@ export function handleMentionPickerKeydown(event) {
 }
 
 export function initMentionPicker(input) {
-  inputEl = input;
-  ensurePicker();
+  return installControllerLifecycle(mentionController, 'mention-picker', gmcp, (scopedGmcp, lifecycle) => {
+    inputEl = input;
+    ensurePicker();
 
-  gmcp.on('Comm.Channel.List', (data) => {
-    channelNames = new Set(DEFAULT_CHANNEL_NAMES);
-    for (const channel of normalizeChannelList(data)) channelNames.add(channel);
-    updateMentionPicker({ refreshRoster: false });
-  });
-  gmcp.on('Comm.Channel.Players', (data) => {
-    rosterRequestPending = false;
-    lastRosterResponseAt = Date.now();
-    lastRosterResponseSize = Array.isArray(data) ? data.length : null;
-    rosterResponseCount += 1;
-    if (rosterRequestTimer) {
-      clearTimeout(rosterRequestTimer);
-      rosterRequestTimer = null;
-    }
-    roster = normalizeRoster(data);
-    updateMentionPicker({ refreshRoster: false });
-  });
+    scopedGmcp.on('Comm.Channel.List', (data) => {
+      channelNames = new Set(DEFAULT_CHANNEL_NAMES);
+      for (const channel of normalizeChannelList(data)) channelNames.add(channel);
+      updateMentionPicker({ refreshRoster: false });
+    });
+    scopedGmcp.on('Comm.Channel.Players', (data) => {
+      rosterRequestPending = false;
+      lastRosterResponseAt = Date.now();
+      lastRosterResponseSize = Array.isArray(data) ? data.length : null;
+      rosterResponseCount += 1;
+      if (rosterRequestTimer) {
+        clearTimeout(rosterRequestTimer);
+        rosterRequestTimer = null;
+      }
+      roster = normalizeRoster(data);
+      updateMentionPicker({ refreshRoster: false });
+    });
 
-  inputEl.addEventListener('input', updateMentionPicker);
-  inputEl.addEventListener('blur', () => {
-    setTimeout(closeMentionPicker, 120);
-  });
-  window.addEventListener('resize', () => {
-    if (pickerEl && !pickerEl.hidden) positionPicker();
-  });
+    lifecycle.listen(inputEl, 'input', updateMentionPicker);
+    lifecycle.listen(inputEl, 'blur', () => lifecycle.setTimeout(closeMentionPicker, 120));
+    lifecycle.listen(window, 'resize', () => {
+      if (pickerEl && !pickerEl.hidden) positionPicker();
+    });
 
-  window.darkflowMentionDebug = () => ({
+    window.darkflowMentionDebug = () => ({
     channels: [...channelNames],
     roster,
     lastContext,
@@ -297,7 +298,21 @@ export function initMentionPicker(input) {
           : [],
       };
     },
+    });
+  }, () => {
+    if (rosterRequestTimer) clearTimeout(rosterRequestTimer);
+    rosterRequestTimer = null;
+    rosterRequestPending = false;
+    closeMentionPicker();
+    if (pickerEl) pickerEl.remove();
+    pickerEl = null;
+    inputEl = null;
+    delete window.darkflowMentionDebug;
   });
+}
+
+export function disposeMentionPicker() {
+  disposeControllerLifecycle(mentionController);
 }
 
 export { closeMentionPicker, updateMentionPicker };

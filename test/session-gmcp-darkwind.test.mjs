@@ -143,6 +143,79 @@ test("Char.Status accepts MUD lifestyle strings without coercion", async (t) => 
   assert.equal(diagnostics.snapshot().suppressedEvents, 0);
 });
 
+test("server-native room and MapData2 wire values validate without coercion", async (t) => {
+  const { createSessionGmcpBus, SessionDiagnostics, sessionId, lookupGmcpValidator } =
+    await loadDarkwindModules(t);
+  const roomId = 2599838393621098;
+  const room = {
+    id: roomId,
+    name: "Temple Yard",
+    area: "Darkwind",
+    observed: 1,
+    positioned: 1,
+    x: 0,
+    y: 0,
+    z: 0,
+    layoutState: "verified",
+    version: 25,
+    exits: { north: roomId + 1 },
+  };
+  const payloads = [
+    ["Darkwind.MapData2.Current", { ...room, liveExits: { north: roomId + 1 } }],
+    [
+      "Room.Info",
+      {
+        num: roomId,
+        name: "Temple Yard",
+        environment: "inside",
+        terrain: "inside",
+        coords: "",
+        exits: "",
+        details: "",
+      },
+    ],
+    ["Room.Players", ""],
+    [
+      "Darkwind.MapData2.Update",
+      {
+        area: "Darkwind",
+        rooms: [room],
+        complete: 1,
+        replace: 0,
+        cursor: roomId,
+        snapshotVersion: 25,
+      },
+    ],
+  ];
+
+  const diagnostics = new SessionDiagnostics(sessionId);
+  const bus = createSessionGmcpBus(sessionId, () => true, diagnostics);
+  const errorSpy = t.mock.method(console, "error", () => {});
+  const seen = [];
+  bus.on("*", (packageName, data) => seen.push([packageName, data]));
+
+  for (const [packageName, payload] of payloads) {
+    const validator = lookupGmcpValidator(packageName);
+    assert.ok(validator);
+    assert.equal(validator(payload).success, true, `${packageName} rejected server payload`);
+    bus.dispatch(packageName, payload);
+  }
+
+  assert.equal(errorSpy.mock.callCount(), 0);
+  assert.equal(seen.length, payloads.length);
+  assert.equal(seen[0][1].id, roomId);
+  assert.equal(seen[0][1].observed, 1);
+  assert.equal(seen[1][1].coords, "");
+  assert.equal(seen[2][1], "");
+  assert.equal(seen[3][1].replace, 0);
+
+  assert.equal(
+    lookupGmcpValidator("Darkwind.MapData2.Current")({ ...room, observed: 2 }).success,
+    false,
+  );
+  assert.equal(lookupGmcpValidator("Room.Players")({}).success, false);
+});
+
 test("Darkwind.Window layout accepts unrecognized node types", async (t) => {
   const { lookupGmcpValidator } = await loadDarkwindModules(t);
   const validator = lookupGmcpValidator("Darkwind.Window.Open");
@@ -315,8 +388,10 @@ test("Darkwind.MapData2 accepts v1 and v2 wire shapes", async (t) => {
     lookupGmcpValidator("Darkwind.MapData2.BrowseArea")({
       catalog: "darkwind-overview",
       name: "Darkwind",
+      center: 2599838393621098,
       rooms: [room],
-      more: false,
+      more: 0,
+      replace: 1,
     }).success,
     true,
   );

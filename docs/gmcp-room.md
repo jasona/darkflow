@@ -40,6 +40,11 @@ and synchronized room features such as the shared jukebox.
 | `exit_states` | Optional explicit direction -> unavailable-state label |
 | `details` | Optional room tags retained by mapping implementations |
 
+The Darkwind server uses an empty string as the LPC/JSON sentinel when
+`coords`, `exits`, or `details` has no value. `Room.Players` likewise sends an
+empty string when no other players are present. Clients accept those wire
+values as empty state without rewriting the received payload.
+
 When an `exits` value is a non-numeric string, Darkflow also treats it as an
 exit state. The room panel displays that direction as unavailable with the
 state in its tooltip. Numeric or otherwise usable destinations are rendered as

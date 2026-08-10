@@ -26,6 +26,8 @@ export interface SessionFacadeHandles {
   scope: ResourceScope;
   automationRuntime: AutomationRuntimeState;
   eventBus: SessionEventBus;
+  /** Read-only lifecycle counters exposed to compatibility diagnostics. */
+  getLifecycleDiagnostics(): ReturnType<SessionDiagnostics["snapshot"]>;
   /** Updates the live transport endpoint read on each connect attempt. */
   setConnectionEndpoint(endpoint: TransportEndpoint): void;
   /** Returns the migrated server profile endpoint before toolbar overrides. */
@@ -184,6 +186,9 @@ export function createSessionFromState(
       scope,
       automationRuntime,
       eventBus,
+      getLifecycleDiagnostics() {
+        return diagnostics.snapshot();
+      },
       setConnectionEndpoint(endpoint: TransportEndpoint) {
         connectionEndpoint.host = endpoint.host;
         connectionEndpoint.port = endpoint.port;

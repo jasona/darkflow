@@ -1,11 +1,13 @@
 import { dom } from './state.js';
 import { gmcp } from './gmcp.js';
+import { disposeControllerLifecycle, installControllerLifecycle } from './session-compat/controllers.js';
 import { appendSystemMessage } from './output.js';
 import { settingsManager } from './settings-manager.js';
 import { aliasManager, tokenizeInput } from './alias-manager.js';
 
 const REQUEST_PACKAGE = 'Darkwind.Completion.Request';
 const RESULT_PACKAGE = 'Darkwind.Completion.Result';
+const completionController = {};
 
 let pendingRequest = null;
 let lastAmbiguousSignature = null;
@@ -192,13 +194,18 @@ function applyCompletionResult(data) {
 }
 
 export function initCompletion() {
-  gmcp.on(RESULT_PACKAGE, applyCompletionResult);
+  return installControllerLifecycle(completionController, 'completion', gmcp, (scopedGmcp, lifecycle) => {
+    scopedGmcp.on(RESULT_PACKAGE, applyCompletionResult);
+    lifecycle.listen(dom.commandInput, 'input', function() {
+      if (suppressReset) return;
+      pendingRequest = null;
+      clearAmbiguousState();
+    });
+  }, resetCompletionState);
+}
 
-  dom.commandInput.addEventListener('input', function() {
-    if (suppressReset) return;
-    pendingRequest = null;
-    clearAmbiguousState();
-  });
+export function disposeCompletion() {
+  disposeControllerLifecycle(completionController);
 }
 
 export function resetCompletionState() {

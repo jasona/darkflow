@@ -67,6 +67,12 @@ export function resetLiveMapModeForConnection() {
   return Promise.all([Promise.resolve(darkwindLoad), Promise.resolve(genericLoad)]);
 }
 
+/** Cancels the reconnect fallback owned by the active session. */
+export function disposeLiveMapSourceLifecycle() {
+  clearReconnectFallback();
+  mode = 'auto';
+}
+
 export function markMapData2Active() {
   if (!darkwindMap.hasLiveCurrent()) return;
   clearReconnectFallback();

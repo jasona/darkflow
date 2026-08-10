@@ -1,4 +1,5 @@
 import { gmcp } from './gmcp.js';
+import { createControllerLifecycle, disposeControllerLifecycle } from './session-compat/controllers.js';
 import { state as appState } from './state.js';
 import {
   createVisualEffectsState,
@@ -119,7 +120,15 @@ export const visualEffectsManager = {
   },
 
   init() {
-    if (this.initialized) return;
+    if (this._controllerLifecycle) return this._controllerLifecycle.dispose;
+    const lifecycle = createControllerLifecycle('visual-effects', () => {
+      this._clearAllVisuals();
+      this._motionQuery = null;
+      this.initialized = false;
+      this._controllerLifecycle = null;
+    });
+    this._controllerLifecycle = lifecycle;
+    const scopedGmcp = lifecycle.bindGmcp(gmcp);
 
     this.root = typeof document !== 'undefined'
       ? document.getElementById(ROOT_ID)
@@ -131,30 +140,30 @@ export const visualEffectsManager = {
       appState.settings && appState.settings.visualEffectPreferences
     );
 
-    gmcp.on('Darkwind.Visual.Events', (payload) => this.handleEvents(payload));
+    scopedGmcp.on('Darkwind.Visual.Events', (payload) => this.handleEvents(payload));
     // Accept the singular spelling defensively for mixed development builds.
-    gmcp.on('Darkwind.Visual.Event', (event) => this.handleEvents({
+    scopedGmcp.on('Darkwind.Visual.Event', (event) => this.handleEvents({
       epoch: event && event.epoch,
       first_seq: event && event.seq,
       last_seq: event && event.seq,
       events: event ? [event] : [],
     }));
-    gmcp.on('Darkwind.Visual.State', (payload) => this.handleWorldState(payload));
-    gmcp.on('Darkwind.Visual.Preview', (payload) => this.handlePreview(payload));
-    gmcp.on('Char.Vitals', (payload) => this.handleVitals(payload));
-    gmcp.on('Room.Info', (payload) => this.handleRoomInfo(payload));
-    gmcp.on('Darkwind.Session.Recovered', () => this.handleSessionRecovered());
+    scopedGmcp.on('Darkwind.Visual.State', (payload) => this.handleWorldState(payload));
+    scopedGmcp.on('Darkwind.Visual.Preview', (payload) => this.handlePreview(payload));
+    scopedGmcp.on('Char.Vitals', (payload) => this.handleVitals(payload));
+    scopedGmcp.on('Room.Info', (payload) => this.handleRoomInfo(payload));
+    scopedGmcp.on('Darkwind.Session.Recovered', () => this.handleSessionRecovered());
 
     if (typeof document !== 'undefined') {
-      document.addEventListener(SETTINGS_CHANGED_EVENT, (event) => {
+      lifecycle.listen(document, SETTINGS_CHANGED_EVENT, (event) => {
         this.handleSettingsChanged(event && event.detail);
       });
-      document.addEventListener(CONNECTION_STATE_EVENT, (event) => {
+      lifecycle.listen(document, CONNECTION_STATE_EVENT, (event) => {
         if (event && event.detail && event.detail.state === 'disconnected') {
           this.handleDisconnect();
         }
       });
-      document.addEventListener('visibilitychange', () => {
+      lifecycle.listen(document, 'visibilitychange', () => {
         if (document.hidden) {
           this._clearTransientEffects();
           this._clearPreview();
@@ -172,8 +181,10 @@ export const visualEffectsManager = {
       };
       if (this._motionQuery.addEventListener) {
         this._motionQuery.addEventListener('change', onMotionChange);
+        lifecycle.own('listener', () => this._motionQuery.removeEventListener('change', onMotionChange));
       } else if (this._motionQuery.addListener) {
         this._motionQuery.addListener(onMotionChange);
+        lifecycle.own('listener', () => this._motionQuery.removeListener(onMotionChange));
       }
     }
 
@@ -188,6 +199,11 @@ export const visualEffectsManager = {
 
     this.initialized = true;
     this._syncSubscription('visual-effects-init');
+    return lifecycle.dispose;
+  },
+
+  dispose() {
+    disposeControllerLifecycle(this);
   },
 
   isEnabled() {

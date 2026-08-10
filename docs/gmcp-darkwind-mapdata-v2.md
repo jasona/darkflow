@@ -59,6 +59,12 @@ visited. Adjusted rooms are positioned away from their natural cell to preserve
 both rooms after a collision. Clients must display these states without
 inventing adjacency.
 
+Room ids are stable 52-bit integers on the Darkwind server, while clients may
+also encounter their string representation in caches or compatible servers.
+Because LDMud represents booleans as integers, server frames encode boolean
+flags such as `observed`, `positioned`, `complete`, `replace`, and `more` as
+`0` or `1`; clients also accept JSON `false` and `true` from compatible servers.
+
 ## Current
 
 `Current` contains the room record plus:
