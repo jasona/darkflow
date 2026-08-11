@@ -107,7 +107,7 @@ test("built artifact renders the legacy client and preserves production contract
       }
     ).__darkflowPhase1ControllerBridge?.getControllerDiagnostics(),
   );
-  expect(controllerDiagnostics?.activeControllers).toBe(22);
+  expect(controllerDiagnostics?.activeControllers).toBe(26);
   expect(controllerDiagnostics?.session.liveSubscriptions).toBeGreaterThanOrEqual(109);
 
   await expect

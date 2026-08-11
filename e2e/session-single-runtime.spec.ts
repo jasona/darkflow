@@ -134,7 +134,7 @@ test("session disposal tears down legacy GMCP controllers and blocks late dispat
 
   expect(result.openedBeforeDispose).toBe(true);
   expect(result.openedAfterDispose).toBe(false);
-  expect(result.before?.activeControllers).toBe(22);
+  expect(result.before?.activeControllers).toBe(26);
   expect(result.before?.session.liveSubscriptions).toBeGreaterThanOrEqual(109);
   expect(result.after?.activeControllers).toBe(0);
   expect(result.after?.session).toMatchObject({

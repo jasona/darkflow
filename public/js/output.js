@@ -18,6 +18,7 @@ import {
   OUTPUT_OVERSCAN_LINES,
   OUTPUT_SCROLLBACK_PRESETS,
 } from './constants.js';
+import { createControllerLifecycle } from './session-compat/controllers.js';
 
 const BOTTOM_THRESHOLD_PX = 5;
 const DEFAULT_LINE_HEIGHT_PX = 23;
@@ -67,6 +68,7 @@ const screenReaderAnnouncedLines = new Map();
 const lineObservers = new Set();
 const recentImageOnlyOutputLines = new Map();
 const recentImageOutputLabels = new Map();
+let outputLifecycle = null;
 
 try {
   if (typeof window !== 'undefined') {
@@ -214,7 +216,7 @@ function setPaneScrollTop(pane, value) {
   pane.scrollSuppressionToken++;
   const token = pane.scrollSuppressionToken;
   pane.scrollEl.scrollTop = value;
-  requestAnimationFrame(() => {
+  requestOutputAnimationFrame(() => {
     if (pane.scrollSuppressionToken === token) {
       pane.suppressScrollEvents = false;
     }
@@ -261,7 +263,7 @@ export function refreshOutputLayout() {
   renderInvalidated = true;
   scheduleFrame();
 
-  requestAnimationFrame(() => {
+  requestOutputAnimationFrame(() => {
     if (shouldStickToLiveBottom && isSplitActive) {
       snapPaneToBottom(panes.live);
       return;
@@ -274,7 +276,7 @@ export function refreshOutputLayout() {
 }
 
 function releaseAutoPauseSuppression() {
-  requestAnimationFrame(() => {
+  requestOutputAnimationFrame(() => {
     suppressAutoPause = false;
   });
 }
@@ -861,9 +863,14 @@ function attachGiphyReplay(line) {
 }
 
 function scheduleFrame() {
-  if (frameScheduled) return;
+  if (frameScheduled || !outputLifecycle || outputLifecycle.disposed) return;
   frameScheduled = true;
-  requestAnimationFrame(flushAndRender);
+  outputLifecycle.requestAnimationFrame(flushAndRender);
+}
+
+function requestOutputAnimationFrame(callback) {
+  if (!outputLifecycle || outputLifecycle.disposed) return () => {};
+  return outputLifecycle.requestAnimationFrame(callback);
 }
 
 function invalidateRender() {
@@ -935,8 +942,11 @@ function announceLineForScreenReader(line) {
   pruneScreenReaderAnnouncements();
   screenReaderAnnounceQueue.push(text);
 
-  if (!screenReaderAnnounceTimer) {
-    screenReaderAnnounceTimer = setTimeout(flushScreenReaderAnnouncements, SCREEN_READER_ANNOUNCE_DELAY_MS);
+  if (!screenReaderAnnounceTimer && outputLifecycle && !outputLifecycle.disposed) {
+    screenReaderAnnounceTimer = outputLifecycle.setTimeout(
+      flushScreenReaderAnnouncements,
+      SCREEN_READER_ANNOUNCE_DELAY_MS
+    );
   }
 }
 
@@ -1218,7 +1228,7 @@ function deactivateSplitView() {
   syncOutputUi();
   renderInvalidated = true;
   scheduleFrame();
-  requestAnimationFrame(() => {
+  requestOutputAnimationFrame(() => {
     requestPaneBottomSnap(panes.main);
     snapPaneToBottom(panes.main);
   });
@@ -1248,7 +1258,7 @@ export function returnOutputToLive() {
   highlightedLineId = null;
   escapeReturnAvailable = false;
   if (highlightTimer) {
-    clearTimeout(highlightTimer);
+    highlightTimer();
     highlightTimer = null;
   }
   isScrollLocked = false;
@@ -1418,73 +1428,84 @@ function sendTriggerCommand(text) {
 }
 
 export function initOutput() {
-  initPane(panes.main, dom.output);
-  initPane(panes.history, dom.outputHistory);
-  initPane(panes.live, dom.outputLive);
-  syncOutputUi();
-  measureEstimatedLineHeight();
-  measureEstimatedCharacterWidth();
-  sendTerminalGeometry(true);
+  if (outputLifecycle) return outputLifecycle.dispose;
+  const lifecycle = createControllerLifecycle('output', disposeOutputState);
+  outputLifecycle = lifecycle;
 
-  dom.output.addEventListener('wheel', markUserScrollIntent, { passive: true });
-  dom.output.addEventListener('touchstart', markUserScrollIntent, { passive: true });
-  dom.output.addEventListener('pointerdown', markScrollbarPointerIntent);
-  dom.outputHistory.addEventListener('wheel', markUserScrollIntent, { passive: true });
-  dom.outputHistory.addEventListener('touchstart', markUserScrollIntent, { passive: true });
-  dom.outputHistory.addEventListener('pointerdown', markScrollbarPointerIntent);
+  try {
+    initPane(panes.main, dom.output);
+    initPane(panes.history, dom.outputHistory);
+    initPane(panes.live, dom.outputLive);
+    syncOutputUi();
+    measureEstimatedLineHeight();
+    measureEstimatedCharacterWidth();
+    sendTerminalGeometry(true);
 
-  dom.output.addEventListener('scroll', handleMainScroll);
-  dom.outputHistory.addEventListener('scroll', handleHistoryScroll);
-  dom.outputLive.addEventListener('scroll', handleLiveScroll);
+    lifecycle.listen(dom.output, 'wheel', markUserScrollIntent, { passive: true });
+    lifecycle.listen(dom.output, 'touchstart', markUserScrollIntent, { passive: true });
+    lifecycle.listen(dom.output, 'pointerdown', markScrollbarPointerIntent);
+    lifecycle.listen(dom.outputHistory, 'wheel', markUserScrollIntent, { passive: true });
+    lifecycle.listen(dom.outputHistory, 'touchstart', markUserScrollIntent, { passive: true });
+    lifecycle.listen(dom.outputHistory, 'pointerdown', markScrollbarPointerIntent);
 
-  if (dom.outputPauseBtn) {
-    dom.outputPauseBtn.addEventListener('click', function() {
-      if (isSplitActive) {
+    lifecycle.listen(dom.output, 'scroll', handleMainScroll);
+    lifecycle.listen(dom.outputHistory, 'scroll', handleHistoryScroll);
+    lifecycle.listen(dom.outputLive, 'scroll', handleLiveScroll);
+
+    if (dom.outputPauseBtn) {
+      lifecycle.listen(dom.outputPauseBtn, 'click', function() {
+        if (isSplitActive) {
+          deactivateSplitView();
+          return;
+        }
+        if (!isOutputPaused) {
+          setOutputPaused(true);
+          return;
+        }
+        setOutputPaused(false);
+      });
+    }
+
+    if (dom.outputLiveBtn) {
+      lifecycle.listen(dom.outputLiveBtn, 'click', function() {
         deactivateSplitView();
-        return;
-      }
-      if (!isOutputPaused) {
-        setOutputPaused(true);
-        return;
-      }
-      setOutputPaused(false);
-    });
-  }
+      });
+    }
 
-  if (dom.outputLiveBtn) {
-    dom.outputLiveBtn.addEventListener('click', function() {
-      deactivateSplitView();
-    });
-  }
+    if (dom.outputEscapeHint) {
+      lifecycle.listen(dom.outputEscapeHint, 'click', function() {
+        returnOutputToLive();
+      });
+    }
 
-  if (dom.outputEscapeHint) {
-    dom.outputEscapeHint.addEventListener('click', function() {
-      returnOutputToLive();
-    });
-  }
+    if (dom.outputDivider) {
+      lifecycle.listen(dom.outputDivider, 'pointerdown', beginDividerDrag);
+      lifecycle.listen(window, 'pointermove', updateDividerDrag);
+      lifecycle.listen(window, 'pointerup', endDividerDrag);
+      lifecycle.listen(window, 'pointercancel', endDividerDrag);
+    }
 
-  if (dom.outputDivider) {
-    dom.outputDivider.addEventListener('pointerdown', beginDividerDrag);
-    window.addEventListener('pointermove', updateDividerDrag);
-    window.addEventListener('pointerup', endDividerDrag);
-    window.addEventListener('pointercancel', endDividerDrag);
-  }
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        refreshOutputLayout();
+      });
+      resizeObserver.observe(dom.outputShell);
+      resizeObserver.observe(dom.output);
+      resizeObserver.observe(dom.outputHistory);
+      resizeObserver.observe(dom.outputLive);
+      lifecycle.ownObserver(resizeObserver);
+    } else {
+      lifecycle.listen(window, 'resize', function() {
+        refreshOutputLayout();
+      });
+    }
 
-  if (typeof ResizeObserver !== 'undefined') {
-    resizeObserver = new ResizeObserver(() => {
-      refreshOutputLayout();
-    });
-    resizeObserver.observe(dom.outputShell);
-    resizeObserver.observe(dom.output);
-    resizeObserver.observe(dom.outputHistory);
-    resizeObserver.observe(dom.outputLive);
-  } else {
-    window.addEventListener('resize', function() {
-      refreshOutputLayout();
-    });
+    lifecycle.listen(window, 'darkflow:output-layout-changed', refreshOutputLayout);
+  } catch (error) {
+    lifecycle.dispose();
+    throw error;
   }
-
-  window.addEventListener('darkflow:output-layout-changed', refreshOutputLayout);
+  return lifecycle.dispose;
 }
 
 export function setOutputScrollbackPreset(preset) {
@@ -1567,8 +1588,9 @@ export function scrollToOutputLine(lineId) {
 
   highlightedLineId = id;
   escapeReturnAvailable = true;
-  if (highlightTimer) clearTimeout(highlightTimer);
-  highlightTimer = setTimeout(() => {
+  if (highlightTimer) highlightTimer();
+  highlightTimer = outputLifecycle.setTimeout(() => {
+    highlightTimer = null;
     if (highlightedLineId === id) {
       highlightedLineId = null;
       invalidateRender();
@@ -1587,8 +1609,9 @@ export function flashOutputLine(lineId) {
   if (!Number.isFinite(id) || !isOutputLineAvailable(id)) return false;
 
   highlightedLineId = id;
-  if (highlightTimer) clearTimeout(highlightTimer);
-  highlightTimer = setTimeout(() => {
+  if (highlightTimer) highlightTimer();
+  highlightTimer = outputLifecycle.setTimeout(() => {
+    highlightTimer = null;
     if (highlightedLineId === id) {
       highlightedLineId = null;
       invalidateRender();
@@ -1802,14 +1825,14 @@ export function clearOutput() {
   screenReaderAnnounceQueue = [];
   screenReaderAnnouncedLines.clear();
   if (screenReaderAnnounceTimer) {
-    clearTimeout(screenReaderAnnounceTimer);
+    screenReaderAnnounceTimer();
     screenReaderAnnounceTimer = null;
   }
   if (dom.screenReaderAnnouncer) {
     dom.screenReaderAnnouncer.textContent = '';
   }
   if (highlightTimer) {
-    clearTimeout(highlightTimer);
+    highlightTimer();
     highlightTimer = null;
   }
   isScrollLocked = false;
@@ -1823,4 +1846,35 @@ export function clearOutput() {
     if (pane.viewportEl) pane.viewportEl.textContent = '';
     if (pane.scrollEl) setPaneScrollTop(pane, 0);
   }
+}
+
+function disposeOutputState() {
+  frameScheduled = false;
+  renderInvalidated = false;
+  lineStore = [];
+  pendingLines = [];
+  openOutputLine = null;
+  nextLineId = 1;
+  resizeObserver = null;
+  highlightedLineId = null;
+  highlightTimer = null;
+  screenReaderAnnounceTimer = null;
+  screenReaderAnnounceQueue = [];
+  screenReaderAnnouncedLines.clear();
+  lineObservers.clear();
+  recentImageOnlyOutputLines.clear();
+  recentImageOutputLabels.clear();
+  activeDividerPointerId = null;
+  isScrollLocked = false;
+  isOutputPaused = false;
+  isSplitActive = false;
+  suppressAutoPause = false;
+  escapeReturnAvailable = false;
+  userScrollIntentUntil = 0;
+  if (dom.screenReaderAnnouncer) dom.screenReaderAnnouncer.textContent = '';
+  for (const pane of Object.values(panes)) {
+    if (pane.scrollEl) pane.scrollEl.textContent = '';
+    Object.assign(pane, createPaneState());
+  }
+  outputLifecycle = null;
 }

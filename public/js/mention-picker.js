@@ -156,9 +156,10 @@ function requestRosterRefresh() {
   rosterRequestCount += 1;
   rosterRequestPending = gmcp.requestChannelPlayers();
   lastRosterRequestSent = rosterRequestPending;
-  if (rosterRequestTimer) clearTimeout(rosterRequestTimer);
+  if (rosterRequestTimer) rosterRequestTimer();
   if (rosterRequestPending) {
-    rosterRequestTimer = setTimeout(() => {
+    rosterRequestTimer = mentionController._controllerLifecycle.setTimeout(() => {
+      rosterRequestTimer = null;
       rosterRequestPending = false;
       lastRosterTimeoutAt = Date.now();
       rosterTimeoutCount += 1;
@@ -258,7 +259,7 @@ export function initMentionPicker(input) {
       lastRosterResponseSize = Array.isArray(data) ? data.length : null;
       rosterResponseCount += 1;
       if (rosterRequestTimer) {
-        clearTimeout(rosterRequestTimer);
+        rosterRequestTimer();
         rosterRequestTimer = null;
       }
       roster = normalizeRoster(data);
@@ -300,7 +301,7 @@ export function initMentionPicker(input) {
     },
     });
   }, () => {
-    if (rosterRequestTimer) clearTimeout(rosterRequestTimer);
+    if (rosterRequestTimer) rosterRequestTimer();
     rosterRequestTimer = null;
     rosterRequestPending = false;
     closeMentionPicker();

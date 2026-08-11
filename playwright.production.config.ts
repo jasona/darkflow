@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "e2e",
-  testMatch: /(?:production-artifact|transports)\.spec\.ts/,
+  testMatch: /(?:production-artifact|session-disposal|transports)\.spec\.ts/,
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,
@@ -13,7 +13,7 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      testMatch: /production-artifact\.spec\.ts/,
+      testMatch: /(?:production-artifact|session-disposal)\.spec\.ts/,
       use: devices["Desktop Chrome"],
     },
     {

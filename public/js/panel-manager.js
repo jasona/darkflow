@@ -240,12 +240,12 @@ export const panelManager = {
   _disposeControllerResources() {
     this._flushPendingStateSave();
     this._clearSubscriptionSyncFallback();
-    if (this._saveTimer) clearTimeout(this._saveTimer);
-    if (this._subscriptionTimer) clearTimeout(this._subscriptionTimer);
-    if (this._buffTimer) clearInterval(this._buffTimer);
-    if (this._skyTimer) clearInterval(this._skyTimer);
-    if (this._avatarMeterTicker) clearInterval(this._avatarMeterTicker);
-    if (this._panelRenderFrame) cancelAnimationFrame(this._panelRenderFrame);
+    if (this._saveTimer) this._saveTimer();
+    if (this._subscriptionTimer) this._subscriptionTimer();
+    if (this._buffTimer) this._buffTimer();
+    if (this._skyTimer) this._skyTimer();
+    if (this._avatarMeterTicker) this._avatarMeterTicker();
+    if (this._panelRenderFrame) this._panelRenderFrame();
     this._saveTimer = null;
     this._subscriptionTimer = null;
     this._buffTimer = null;
@@ -258,7 +258,8 @@ export const panelManager = {
     disposeMapData2Lifecycle();
     disposeGenericMapDataLifecycle();
     for (const panel of Object.values(this.panels)) {
-      if (panel.mapResizeObserver) panel.mapResizeObserver.disconnect();
+      if (panel.mapResizeObserverRelease) panel.mapResizeObserverRelease();
+      if (panel.floatResizeObserverRelease) panel.floatResizeObserverRelease();
     }
     this._initialized = false;
   },
@@ -338,7 +339,7 @@ export const panelManager = {
   resetLayoutState() {
     if (appState.zorkOnlyMode) return;
     if (this._saveTimer) {
-      clearTimeout(this._saveTimer);
+      this._saveTimer();
       this._saveTimer = null;
     }
     try {
@@ -389,8 +390,8 @@ export const panelManager = {
 
   syncGmcpSubscriptions(reason = 'visibility-sync', full = false, extraFeatures = {}) {
     if (appState.zorkOnlyMode) return;
-    if (this._subscriptionTimer) clearTimeout(this._subscriptionTimer);
-    this._subscriptionTimer = setTimeout(() => {
+    if (this._subscriptionTimer) this._subscriptionTimer();
+    this._subscriptionTimer = this._controllerLifecycle.setTimeout(() => {
       this._subscriptionTimer = null;
       gmcp.sendSubscriptions({
         reason,
@@ -712,7 +713,7 @@ export const panelManager = {
 
   _flushPendingStateSave() {
     if (this._saveTimer) {
-      clearTimeout(this._saveTimer);
+      this._saveTimer();
       this._saveTimer = null;
     }
     if (this._mobile.enabled) return;
@@ -940,7 +941,7 @@ export const panelManager = {
 
   saveState() {
     if (this._mobile.enabled) return;
-    if (this._saveTimer) clearTimeout(this._saveTimer);
+    if (this._saveTimer) this._saveTimer();
     this._saveTimer = null;
     this._storeActiveProfile();
     this._flushStoredProfiles();
@@ -1126,13 +1127,13 @@ export const panelManager = {
   },
 
   _notifyOutputLayoutChanged() {
-    window.requestAnimationFrame(() => {
+    this._controllerLifecycle.requestAnimationFrame(() => {
       window.dispatchEvent(new CustomEvent('darkflow:output-layout-changed'));
     });
   },
 
   _notifyWorkspaceLayoutChanged() {
-    window.requestAnimationFrame(() => {
+    this._controllerLifecycle.requestAnimationFrame(() => {
       window.dispatchEvent(new CustomEvent('darkflow:workspace-layout-changed', {
         detail: { layout: this._workspaceLayout },
       }));
@@ -1238,6 +1239,7 @@ export const panelManager = {
     if (hasExternalMapState && typeof ResizeObserver !== 'undefined') {
       panel.mapResizeObserver = new ResizeObserver(() => this._queuePanelRender(id));
       panel.mapResizeObserver.observe(body);
+      panel.mapResizeObserverRelease = this._controllerLifecycle.ownObserver(panel.mapResizeObserver);
     }
     if (id === 'sky') this._syncSkyTimer();
     this._renderMobileSheet();
@@ -1486,6 +1488,8 @@ export const panelManager = {
     this._applyFloatPosition(el, st);
 
     const id = el.dataset.panelId;
+    const panel = this.panels[id];
+    if (panel && panel.floatResizeObserverRelease) panel.floatResizeObserverRelease();
     const ro = new ResizeObserver(() => {
       const s = this.state.panels[id];
       if (s && s.dock === 'float' && !this._mobile.enabled) {
@@ -1508,6 +1512,7 @@ export const panelManager = {
       }
     });
     ro.observe(el);
+    if (panel) panel.floatResizeObserverRelease = this._controllerLifecycle.ownObserver(ro);
   },
 
   _bringPanelToFront(id) {
@@ -2044,6 +2049,10 @@ export const panelManager = {
     st.dock = side;
     st.order = order;
     delete st.panelAnchor;
+    if (p.floatResizeObserverRelease) {
+      p.floatResizeObserverRelease();
+      p.floatResizeObserverRelease = null;
+    }
     this.state.docks[side] = false;
     this._applyDockStateToDom();
     this._insertIntoDock(id, p.el, side, order);
@@ -2148,7 +2157,8 @@ export const panelManager = {
     st.visible = false;
     const p = this.panels[id];
     if (p) {
-      if (p.mapResizeObserver) p.mapResizeObserver.disconnect();
+      if (p.mapResizeObserverRelease) p.mapResizeObserverRelease();
+      if (p.floatResizeObserverRelease) p.floatResizeObserverRelease();
       p.el.remove();
       delete this.panels[id];
     }
@@ -2441,6 +2451,8 @@ export const panelManager = {
   removeDynamicPanel(id, options = {}) {
     const p = this.panels[id];
     if (!p) return;
+    if (p.mapResizeObserverRelease) p.mapResizeObserverRelease();
+    if (p.floatResizeObserverRelease) p.floatResizeObserverRelease();
     p.el.remove();
     delete this.panels[id];
     if (options.preserveState && this.state.panels[id]) {
@@ -2469,7 +2481,7 @@ export const panelManager = {
     this._commChannelPlayersRequested = false;
     this._pendingPanelRenders.clear();
     if (this._panelRenderFrame) {
-      cancelAnimationFrame(this._panelRenderFrame);
+      this._panelRenderFrame();
       this._panelRenderFrame = null;
     }
     for (const [id, p] of Object.entries(this.panels)) {
@@ -2502,7 +2514,7 @@ export const panelManager = {
 
   _notifyAvatarMeterLayoutIfChanged(meter, wasVisible) {
     if (!meter || wasVisible === meter.classList.contains('visible')) return;
-    window.requestAnimationFrame(() => {
+    this._controllerLifecycle.requestAnimationFrame(() => {
       window.dispatchEvent(new CustomEvent('darkflow:output-layout-changed'));
     });
   },
@@ -2526,7 +2538,7 @@ export const panelManager = {
   // left unsubscribed for the whole session.
   _armSubscriptionSyncFallback() {
     this._clearSubscriptionSyncFallback();
-    this._subscriptionSyncFallbackTimer = setTimeout(() => {
+    this._subscriptionSyncFallbackTimer = this._controllerLifecycle.setTimeout(() => {
       this._subscriptionSyncFallbackTimer = null;
       if (this._characterSubscriptionSyncSent) return;
       this._syncSubscriptionsAfterCharacterData();
@@ -2535,7 +2547,7 @@ export const panelManager = {
 
   _clearSubscriptionSyncFallback() {
     if (this._subscriptionSyncFallbackTimer) {
-      clearTimeout(this._subscriptionSyncFallbackTimer);
+      this._subscriptionSyncFallbackTimer();
       this._subscriptionSyncFallbackTimer = null;
     }
   },
@@ -2592,12 +2604,12 @@ export const panelManager = {
 
   _startAvatarMeterTicker() {
     if (this._avatarMeterTicker) return;
-    this._avatarMeterTicker = setInterval(() => this._tickAvatarMeter(), 1000);
+    this._avatarMeterTicker = this._controllerLifecycle.setInterval(() => this._tickAvatarMeter(), 1000);
   },
 
   _stopAvatarMeterTicker() {
     if (this._avatarMeterTicker) {
-      clearInterval(this._avatarMeterTicker);
+      this._avatarMeterTicker();
       this._avatarMeterTicker = null;
     }
   },
@@ -2825,14 +2837,14 @@ export const panelManager = {
 
     if (!visible || !hasTimedBuffs) {
       if (this._buffTimer) {
-        clearInterval(this._buffTimer);
+        this._buffTimer();
         this._buffTimer = null;
       }
       return;
     }
 
     if (this._buffTimer) return;
-    this._buffTimer = setInterval(() => {
+    this._buffTimer = this._controllerLifecycle.setInterval(() => {
       if (!this.state.panels.buffs || !this.state.panels.buffs.visible || !this.panels.buffs) {
         this._syncBuffTimer();
         return;
@@ -2847,14 +2859,14 @@ export const panelManager = {
 
     if (!visible || !hasData) {
       if (this._skyTimer) {
-        clearInterval(this._skyTimer);
+        this._skyTimer();
         this._skyTimer = null;
       }
       return;
     }
 
     if (this._skyTimer) return;
-    this._skyTimer = setInterval(() => {
+    this._skyTimer = this._controllerLifecycle.setInterval(() => {
       if (!this.state.panels.sky || !this.state.panels.sky.visible || !this.panels.sky) {
         this._syncSkyTimer();
         return;
@@ -2864,9 +2876,10 @@ export const panelManager = {
   },
 
   _queuePanelRender(id) {
+    if (!this._controllerLifecycle || this._controllerLifecycle.disposed) return;
     this._pendingPanelRenders.add(id);
     if (this._panelRenderFrame) return;
-    this._panelRenderFrame = requestAnimationFrame(() => {
+    this._panelRenderFrame = this._controllerLifecycle.requestAnimationFrame(() => {
       this._panelRenderFrame = null;
       const ids = Array.from(this._pendingPanelRenders);
       this._pendingPanelRenders.clear();
@@ -2879,7 +2892,8 @@ export const panelManager = {
   _resetLivePanels() {
     this._restoreTerminalToClassic();
     for (const p of Object.values(this.panels)) {
-      if (p.mapResizeObserver) p.mapResizeObserver.disconnect();
+      if (p.mapResizeObserverRelease) p.mapResizeObserverRelease();
+      if (p.floatResizeObserverRelease) p.floatResizeObserverRelease();
       p.el.remove();
     }
     this.panels = {};

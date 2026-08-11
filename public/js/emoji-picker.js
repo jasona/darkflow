@@ -12,6 +12,7 @@ let activeToken = null;
 let activeSuggestions = [];
 let activeIndex = 0;
 let isEnabled = () => true;
+let activeDisposer = null;
 
 function ensurePicker() {
   if (pickerEl) return pickerEl;
@@ -172,18 +173,58 @@ export function handleEmojiPickerKeydown(event) {
   return false;
 }
 
-export function initEmojiPicker(input, options = {}) {
+export function initEmojiPicker(input, options = {}, lifecycle = null) {
+  if (activeDisposer) return activeDisposer;
+
   inputEl = input;
   isEnabled = typeof options.isEnabled === 'function' ? options.isEnabled : () => true;
   ensurePicker();
 
-  inputEl.addEventListener('input', updateEmojiPicker);
-  inputEl.addEventListener('blur', () => {
-    setTimeout(closeEmojiPicker, 120);
-  });
-  window.addEventListener('resize', () => {
+  const releases = [];
+  let releaseBlurTimer = null;
+  const listen = (target, type, listener) => {
+    if (lifecycle) return lifecycle.listen(target, type, listener);
+    target.addEventListener(type, listener);
+    return () => target.removeEventListener(type, listener);
+  };
+
+  releases.push(listen(inputEl, 'input', updateEmojiPicker));
+  releases.push(listen(inputEl, 'blur', () => {
+    if (releaseBlurTimer) releaseBlurTimer();
+    if (lifecycle) {
+      releaseBlurTimer = lifecycle.setTimeout(() => {
+        releaseBlurTimer = null;
+        closeEmojiPicker();
+      }, 120);
+    } else {
+      const timer = setTimeout(() => {
+        releaseBlurTimer = null;
+        closeEmojiPicker();
+      }, 120);
+      releaseBlurTimer = () => clearTimeout(timer);
+    }
+  }));
+  releases.push(listen(window, 'resize', () => {
     if (pickerEl && !pickerEl.hidden) positionPicker();
-  });
+  }));
+
+  activeDisposer = () => {
+    if (!activeDisposer) return;
+    activeDisposer = null;
+    if (releaseBlurTimer) releaseBlurTimer();
+    releaseBlurTimer = null;
+    for (const release of releases.toReversed()) release();
+    closeEmojiPicker();
+    if (pickerEl) pickerEl.remove();
+    pickerEl = null;
+    inputEl = null;
+    isEnabled = () => true;
+  };
+  return activeDisposer;
+}
+
+export function disposeEmojiPicker() {
+  if (activeDisposer) activeDisposer();
 }
 
 export { EMOJI_ALIASES, closeEmojiPicker, updateEmojiPicker };

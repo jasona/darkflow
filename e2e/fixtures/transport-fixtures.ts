@@ -15,6 +15,7 @@ export interface TransportEndpoint {
   readonly protocol: TransportName;
   readonly reply: string;
   activeSocketCount(): number;
+  sendText(text: string): void;
 }
 
 interface FixtureWebSocket {
@@ -147,6 +148,9 @@ async function startWebSocketFixture(
       prompt,
       protocol,
       reply,
+      sendText(text) {
+        for (const client of webSocketServer.clients) client.send(text);
+      },
     },
     owner: {
       async close() {
@@ -248,6 +252,9 @@ async function startTelnetFixture(
       prompt,
       protocol,
       reply,
+      sendText(text) {
+        for (const socket of sockets) socket.write(text);
+      },
     },
     owner: {
       close: () => closeServer(server, sockets),

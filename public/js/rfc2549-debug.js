@@ -1,4 +1,5 @@
 import { state, dom } from './state.js';
+import { createControllerLifecycle } from './session-compat/controllers.js';
 
 const STORAGE_KEY = 'darkflow-rfc2549';
 const URL_PARAM = 'rfc2549';
@@ -18,6 +19,7 @@ let enabled = false;
 let qosOverride = null;
 let manualRedMarks = [];
 let snapshotProvider = null;
+let debugLifecycle = null;
 
 function isTruthy(value) {
   if (value === null) return false;
@@ -149,7 +151,7 @@ function createPanel() {
     '</div>' +
     '<div class="rfc2549-body"></div>';
   bodyEl = panelEl.querySelector('.rfc2549-body');
-  panelEl.querySelector('.rfc2549-close').addEventListener('click', disable);
+  debugLifecycle.listen(panelEl.querySelector('.rfc2549-close'), 'click', disable);
   document.body.appendChild(panelEl);
 }
 
@@ -169,13 +171,13 @@ export function enable() {
   createPanel();
   panelEl.hidden = false;
   render();
-  timer = setInterval(render, UPDATE_INTERVAL_MS);
+  timer = debugLifecycle.setInterval(render, UPDATE_INTERVAL_MS);
 }
 
 export function disable() {
   enabled = false;
   persist(false);
-  if (timer) clearInterval(timer);
+  if (timer) timer();
   timer = null;
   if (panelEl) panelEl.hidden = true;
 }
@@ -219,6 +221,18 @@ export function markRed(reason) {
 }
 
 export function initRfc2549Debug(options) {
+  if (debugLifecycle) return debugLifecycle.dispose;
+  const lifecycle = createControllerLifecycle('rfc2549-debug', () => {
+    timer = null;
+    enabled = false;
+    if (panelEl) panelEl.remove();
+    panelEl = null;
+    bodyEl = null;
+    snapshotProvider = null;
+    delete window.rfc2549Debug;
+    debugLifecycle = null;
+  });
+  debugLifecycle = lifecycle;
   snapshotProvider = options && options.getSnapshot;
   window.rfc2549Debug = {
     enable,
@@ -229,4 +243,5 @@ export function initRfc2549Debug(options) {
     markRed,
   };
   if (getStartupEnabled()) enable();
+  return lifecycle.dispose;
 }

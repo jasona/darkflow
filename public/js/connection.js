@@ -65,28 +65,39 @@ let upgradeProbeSocket = null;
 let handshakeResendTimer = null;
 let activeLifecycleState = null;
 let activeLifecycleWired = false;
+let activeLifecycleDisposer = null;
+let legacyOnlineDisposer = null;
 let lastConnectedReconnectDetail = null;
 
 /** Runs legacy connect/disconnect side effects when the session transport changes state. */
 export function wireActiveSessionLifecycle() {
-  if (activeLifecycleWired || !isSessionRuntimeActive()) {
-    return;
-  }
+  if (activeLifecycleDisposer) return activeLifecycleDisposer;
+  if (!isSessionRuntimeActive()) return () => {};
   activeLifecycleWired = true;
 
-  runtimeSubscribeReconnectStatus(function(detail) {
+  const releases = [runtimeSubscribeReconnectStatus(function(detail) {
     if (detail.status === 'connected') {
       lastConnectedReconnectDetail = detail;
     }
-  });
+  })];
 
-  runtimeSubscribeConnectionState(function(connState) {
+  releases.push(runtimeSubscribeConnectionState(function(connState) {
     if (connState === 'connected') {
       handleActiveSessionConnected();
     } else if (connState === 'disconnected') {
       handleActiveSessionDisconnected();
     }
-  });
+  }));
+
+  activeLifecycleDisposer = () => {
+    if (!activeLifecycleDisposer) return;
+    activeLifecycleDisposer = null;
+    for (const release of releases.toReversed()) release();
+    activeLifecycleWired = false;
+    activeLifecycleState = null;
+    lastConnectedReconnectDetail = null;
+  };
+  return activeLifecycleDisposer;
 }
 
 function handleActiveSessionConnected() {
@@ -977,16 +988,33 @@ export async function connect() {
   }
 }
 
-// When the browser regains network, do not sit out the rest of a long
-// backoff window; try immediately.
-if (typeof window !== 'undefined' &&
-  typeof window.addEventListener === 'function') {
-  window.addEventListener('online', function() {
+// Legacy fallback only: the typed session transport owns its own online listener.
+export function installLegacyOnlineFallback(lifecycle = null) {
+  if (legacyOnlineDisposer) return legacyOnlineDisposer;
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') {
+    return () => {};
+  }
+  const listener = function() {
     if (state.userDisconnected) return;
     if (isSocketOpen(state.ws) || isSocketConnecting(state.ws)) return;
     if (!settingsManager.get('autoReconnect') && !state.reconnectTimer) return;
     retryNow();
-  });
+  };
+  const release = lifecycle
+    ? lifecycle.listen(window, 'online', listener)
+    : (() => {
+        window.addEventListener('online', listener);
+        return () => window.removeEventListener('online', listener);
+      })();
+  legacyOnlineDisposer = () => {
+    if (!legacyOnlineDisposer) return;
+    legacyOnlineDisposer = null;
+    release();
+  };
+  // The lifecycle scope owns `release` directly, so its dispose bypasses the
+  // wrapper above; own a teardown that nulls the singleton so re-init rewires.
+  if (lifecycle) lifecycle.own('teardown', () => { legacyOnlineDisposer = null; });
+  return legacyOnlineDisposer;
 }
 
 export function disconnect() {
