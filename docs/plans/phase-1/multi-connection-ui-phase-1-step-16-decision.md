@@ -2,11 +2,13 @@
 
 ## Decision
 
-**Status: `OPEN`**
+**Status:** `COMPLETE`
 
-Phase 1 is not certified. This record freezes the intended one-session
-foundation and assigns compatibility debt, but no immutable clean candidate or
-hosted-CI evidence has been recorded. Phase 2 implementation remains blocked.
+Phase 1 is certified for immutable candidate
+`21b1dc111e50d736318895eb7c45e3e096af4953` as of 2026-08-11
+(America/Detroit). Required CI passed for that SHA; the project owner accepted
+hosted CI as sufficient for this hobby-project gate. Phase 2 implementation is
+unblocked.
 
 ## Foundation freeze
 
@@ -68,10 +70,11 @@ Outbound-only rows are intentionally distinct from inbound validation work.
 
 ## Evidence ledger
 
-No immutable candidate SHA has been designated. The current Step 16
-documentation changes are uncommitted; therefore none of the following rows is
-clean-checkout or hosted-CI evidence. The local preliminary rows used Node
-`v22.15.0` and npm `10.9.2`.
+Immutable candidate: `21b1dc111e50d736318895eb7c45e3e096af4953` (2026-08-11,
+America/Detroit). Required hosted CI passed for this SHA. The CI run URL was not
+recorded; completion is based on the project owner's confirmation. Earlier local
+preliminary rows used Node `v22.15.0` and npm `10.9.2` and remain contextual
+evidence rather than candidate attestation.
 
 | Gate                                                                               | Result                   | Evidence                                                                                                                                                                                                             |
 | ---------------------------------------------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -82,20 +85,16 @@ clean-checkout or hosted-CI evidence. The local preliminary rows used Node
 | Chromium disposal and single-runtime parity                                        | Local preliminary `PASS` | 4 tests: `npm run test:browser -- e2e/session-disposal.spec.ts e2e/session-single-runtime.spec.ts --project=chromium`                                                                                                |
 | Build and artifact sentinels                                                       | Local preliminary `PASS` | `npm run build`, including `verify:bundle` and `verify:client-artifact`                                                                                                                                              |
 | Production Chromium parity                                                         | Local preliminary `PASS` | 2 tests: `npm run test:browser:production`                                                                                                                                                                           |
-| Clean-install quality, full browser, transports, Electron, Docker, and MCP battery | `PENDING`                | Requires an immutable candidate with empty pre-install status and the exact Step 16 command matrix.                                                                                                                  |
-| Hosted CI `baseline`, `docker`, `browser`, and `mcp`                               | `PENDING`                | Requires direct green job links for the same immutable candidate SHA.                                                                                                                                                |
+| Clean-install quality, full browser, transports, Electron, Docker, and MCP battery | Candidate CI `PASS`      | Required CI passed for `21b1dc111e50d736318895eb7c45e3e096af4953`; the project owner accepted hosted CI without a duplicate local battery.                                                                           |
+| Hosted CI `baseline`, `docker`, `browser`, and `mcp`                               | `PASS`                   | Project-owner-confirmed green CI for `21b1dc111e50d736318895eb7c45e3e096af4953`; run URL not recorded.                                                                                                               |
 
-The current date is 2026-08-10 (America/Detroit). Record the candidate SHA,
-clean-checkout source, platform, Node/npm versions, commands, counts/artifacts,
-and hosted run links only after the `OPEN` ledger is committed as its candidate.
-`BLOCKED_ENVIRONMENT`, skipped, cancelled, stale-candidate, and allowed-failure
-results are not green.
+Completion date: 2026-08-11 (America/Detroit). The immutable candidate SHA and
+green hosted-CI result are recorded above. No runtime input changed while making
+this documentation-only attestation.
 
 ## Go/no-go
 
-Remain `OPEN` until one immutable clean candidate passes the complete local
-battery and hosted `baseline`, `docker`, `browser`, and `mcp` jobs. If any gate
-fails, return the smallest correction to its owning Steps 3-15 boundary and
-restart the candidate evidence. Only a documentation-only attestation after all
-required gates are green may set this record to `COMPLETE`, check the master
-Phase 1 gate, and unblock Phase 2.
+`COMPLETE`. Candidate `21b1dc111e50d736318895eb7c45e3e096af4953` passed required
+CI and was accepted on 2026-08-11. The frozen interfaces and assigned debt above
+now unblock Phase 2. This documentation-only attestation does not change the
+candidate.

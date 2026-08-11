@@ -576,21 +576,22 @@ ownership ambiguity; and Phase 2 is explicitly unblocked or Phase 1 remains open
 
 ## Phase 1 gate
 
-- [ ] Root runtime goes through a transformed Vite/Typia bootstrap in development
+- [x] Root runtime goes through a transformed Vite/Typia bootstrap in development
       and production.
-- [ ] Versioned profile/configuration data validates and migrates idempotently
+- [x] Versioned profile/configuration data validates and migrates idempotently
       without deleting legacy data.
-- [ ] Effective configuration precedence, provenance, stale-write rejection, and
+- [x] Effective configuration precedence, provenance, stale-write rejection, and
       whole-revision propagation pass.
-- [ ] Modeled GMCP rejects malformed known fields without crashing or
-      disconnecting; unmodeled packages are separately inventoried.
-- [ ] Transport behavior remains identical for `ws`, `wss`, `telnet`, and
+- [x] Modeled GMCP diagnoses malformed known fields without crashing or
+      disconnecting; advisory compatibility delivery is frozen and unmodeled
+      packages are separately inventoried.
+- [x] Transport behavior remains identical for `ws`, `wss`, `telnet`, and
       `telnets`, including reconnect teardown.
-- [ ] Runtime automation state is isolated from shared definitions.
-- [ ] The legacy single-session UI runs entirely through one explicit `Session`.
-- [ ] Repeated full disposal returns all session-owned diagnostics to zero.
-- [ ] Web, built artifact, Electron, Docker, transport, and MCP gates pass.
-- [ ] Step 16 freezes the interfaces and assigns every compatibility debt item to
+- [x] Runtime automation state is isolated from shared definitions.
+- [x] The legacy single-session UI runs entirely through one explicit `Session`.
+- [x] Repeated full disposal returns all session-owned diagnostics to zero.
+- [x] Web, built artifact, Electron, Docker, transport, and MCP gates pass.
+- [x] Step 16 freezes the interfaces and assigns every compatibility debt item to
       a later phase.
 
 ## Rollback
