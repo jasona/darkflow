@@ -75,6 +75,13 @@ for (const transport of transports) {
     );
     await page.goto("/?debugWs=1");
     await configResponse;
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Boolean((window as unknown as { wsDebug?: { snapshot?: unknown } }).wsDebug?.snapshot),
+        ),
+      )
+      .toBe(true);
     await connectThroughPublicControls(page, endpoint);
 
     const expectedUrl = transportUrl(endpoint);

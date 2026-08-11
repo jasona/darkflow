@@ -75,8 +75,14 @@ test("25 connect and disposal cycles release every session browser resource", as
       const input = document.querySelector("#command-input") as HTMLInputElement;
       const transfer = new DataTransfer();
       transfer.setData("text", `look\nlate-batch-${cycleIndex}`);
-      input.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, clipboardData: transfer }));
-      (document.querySelector(".command-batch-submit") as HTMLButtonElement)?.click();
+      const paste = new Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(paste, "clipboardData", { value: transfer });
+      input.dispatchEvent(paste);
+      const batchSubmit = document.querySelector(
+        ".command-batch-submit",
+      ) as HTMLButtonElement | null;
+      if (!batchSubmit) throw new Error(`cycle ${cycleIndex} batch drawer did not open`);
+      batchSubmit.click();
       document.dispatchEvent(new CustomEvent("darkflow:map-source-changed"));
       window.dispatchEvent(new CustomEvent("darkflow:output-layout-changed"));
 

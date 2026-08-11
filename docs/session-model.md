@@ -153,7 +153,7 @@ within a kind.
 
 - [Multi-connection UI proposal](plans/multi-connection-ui-proposal.md) —
   product rationale and ownership table
-- [Phase 1 overview](plans/multi-connection-ui-phase-1-implementation-plan.md) —
+- [Phase 1 overview](plans/phase-1/multi-connection-ui-phase-1-implementation-plan.md) —
   step sequence including persistence and effective configuration
-- [Phase 1 Step 3 implementation plan](plans/multi-connection-ui-phase-1-step-3-implementation-plan.md) —
+- [Phase 1 Step 3 implementation plan](plans/phase-1/multi-connection-ui-phase-1-step-3-implementation-plan.md) —
   contract decisions and validation requirements
