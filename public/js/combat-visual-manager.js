@@ -9,6 +9,7 @@ import {
   reduceCombatState,
   takeNextCombatEvent,
 } from './combat-visual-core.mjs';
+import { disposeControllerLifecycle, installControllerLifecycle } from './session-compat/controllers.js';
 
 const COMBAT_BEAT_MS = 440;
 // Reduced motion removes movement, not information. Keep the static result and
@@ -36,44 +37,57 @@ export const combatVisualManager = {
   _panelLifecycleHandler: null,
 
   init() {
-    if (this.initialized) return;
+    return installControllerLifecycle(this, 'combat-visual', gmcp, (scopedGmcp, lifecycle) => {
+      this._motionQuery = mediaQueryForReducedMotion();
+      this.model = createCombatVisualState({
+        reducedMotion: prefersReducedCombatMotion(
+          typeof window !== 'undefined' ? window.matchMedia.bind(window) : null,
+        ),
+      });
+      this._panelLifecycleHandler = (detail) => this._handlePanelLifecycle(detail);
+      panelManager.registerPanelLifecycleHandler('enemy', this._panelLifecycleHandler);
+      lifecycle.own('teardown', () => {
+        panelManager.unregisterPanelLifecycleHandler('enemy', this._panelLifecycleHandler);
+      });
 
-    this._motionQuery = mediaQueryForReducedMotion();
-    this.model = createCombatVisualState({
-      reducedMotion: prefersReducedCombatMotion(
-        typeof window !== 'undefined' ? window.matchMedia.bind(window) : null,
-      ),
-    });
-    this._panelLifecycleHandler = (detail) => this._handlePanelLifecycle(detail);
-    panelManager.registerPanelLifecycleHandler('enemy', this._panelLifecycleHandler);
+      scopedGmcp.on('Darkwind.Combat.State', (data) => this.handleState(data));
+      scopedGmcp.on('Darkwind.Combat.Events', (data) => this.handleEvents(data));
+      // Accept the singular spelling defensively for mixed development builds.
+      scopedGmcp.on('Darkwind.Combat.Event', (data) => this.handleEvents({
+        epoch: data && data.epoch,
+        encounter_id: data && data.encounter_id,
+        first_seq: data && data.seq,
+        last_seq: data && data.seq,
+        events: data ? [data] : [],
+      }));
 
-    gmcp.on('Darkwind.Combat.State', (data) => this.handleState(data));
-    gmcp.on('Darkwind.Combat.Events', (data) => this.handleEvents(data));
-    // A few development servers emitted one event per frame while the v1
-    // batch contract was being built. Accepting the singular spelling costs
-    // nothing and prevents a visually silent mixed-version test session.
-    gmcp.on('Darkwind.Combat.Event', (data) => this.handleEvents({
-      epoch: data && data.epoch,
-      encounter_id: data && data.encounter_id,
-      first_seq: data && data.seq,
-      last_seq: data && data.seq,
-      events: data ? [data] : [],
-    }));
-
-    if (this._motionQuery) {
-      const onMotionChange = (event) => {
-        this.model = { ...this.model, reducedMotion: !!event.matches };
-        this._publishModel('motion-change');
-      };
-      if (this._motionQuery.addEventListener) {
-        this._motionQuery.addEventListener('change', onMotionChange);
-      } else if (this._motionQuery.addListener) {
-        this._motionQuery.addListener(onMotionChange);
+      if (this._motionQuery) {
+        const onMotionChange = lifecycle.guard((event) => {
+          this.model = { ...this.model, reducedMotion: !!event.matches };
+          this._publishModel('motion-change');
+        });
+        if (this._motionQuery.addEventListener) {
+          this._motionQuery.addEventListener('change', onMotionChange);
+          lifecycle.own('listener', () => this._motionQuery.removeEventListener('change', onMotionChange));
+        } else if (this._motionQuery.addListener) {
+          this._motionQuery.addListener(onMotionChange);
+          lifecycle.own('listener', () => this._motionQuery.removeListener(onMotionChange));
+        }
       }
-    }
 
-    this.initialized = true;
-    this._syncReadiness('combat-manager-init');
+      this.initialized = true;
+      this._syncReadiness('combat-manager-init');
+    }, () => {
+      this._clearTimers();
+      panelManager.setCombatVisualState(null);
+      this._motionQuery = null;
+      this._panelLifecycleHandler = null;
+      this.initialized = false;
+    });
+  },
+
+  dispose() {
+    disposeControllerLifecycle(this);
   },
 
   handleState(payload) {

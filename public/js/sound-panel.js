@@ -1,5 +1,6 @@
 import { gmcp } from './gmcp.js';
 import { soundManager, SOUND_CATEGORIES, SOUND_CATEGORY_INFO } from './sound-manager.js';
+import { disposeControllerLifecycle, installControllerLifecycle } from './session-compat/controllers.js';
 
 const EXPANDED_STORAGE_KEY = 'darkwind-sound-expanded';
 const SOUND_PACKAGE = 'Darkwind.Sound';
@@ -17,22 +18,35 @@ class SoundPanel {
 
   init(rootId = 'audio-widget-root') {
     this.root = document.getElementById(rootId);
-    if (!this.root || this.panel) return;
-    this.expanded = false;
-    this.panel = document.createElement('div');
-    this.panel.className = 'sound-widget';
-    this.panel.innerHTML = this._buildHtml();
-    this.root.appendChild(this.panel);
-    this._attachEvents();
-    this._setExpanded(this.expanded);
-    this._setSupported(gmcp.serverSupportsPackage(SOUND_PACKAGE));
-    this.update();
+    if (!this.root) return;
+    return installControllerLifecycle(this, 'sound-panel', gmcp, (scopedGmcp, lifecycle) => {
+      this.expanded = false;
+      this.panel = document.createElement('div');
+      this.panel.className = 'sound-widget';
+      this.panel.innerHTML = this._buildHtml();
+      this.root.appendChild(this.panel);
+      this._attachEvents();
+      this._setExpanded(this.expanded);
+      this._setSupported(scopedGmcp.serverSupportsPackage(SOUND_PACKAGE));
+      this.update();
 
-    soundManager.onChange(() => this.update());
-    gmcp.on('Core.Supports.Set', () => this._setSupported(gmcp.serverSupportsPackage(SOUND_PACKAGE)));
-    gmcp.on('Core.Supports.Add', () => this._setSupported(gmcp.serverSupportsPackage(SOUND_PACKAGE)));
-    gmcp.on('Core.Supports.Remove', () => this._setSupported(gmcp.serverSupportsPackage(SOUND_PACKAGE)));
-    gmcp.on('Darkwind.Sound', (message) => this.handleSoundMessage(message));
+      lifecycle.own('subscription', soundManager.onChange(() => this.update()));
+      scopedGmcp.on('Core.Supports.Set', () => this._setSupported(scopedGmcp.serverSupportsPackage(SOUND_PACKAGE)));
+      scopedGmcp.on('Core.Supports.Add', () => this._setSupported(scopedGmcp.serverSupportsPackage(SOUND_PACKAGE)));
+      scopedGmcp.on('Core.Supports.Remove', () => this._setSupported(scopedGmcp.serverSupportsPackage(SOUND_PACKAGE)));
+      scopedGmcp.on('Darkwind.Sound', (message) => this.handleSoundMessage(message));
+    }, () => {
+      if (this.activityTimer) window.clearTimeout(this.activityTimer);
+      this.activityTimer = null;
+      this.activeLoops.clear();
+      if (this.panel) this.panel.remove();
+      this.panel = null;
+      this.root = null;
+    });
+  }
+
+  dispose() {
+    disposeControllerLifecycle(this);
   }
 
   _loadExpandedState() {

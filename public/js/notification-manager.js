@@ -2,6 +2,7 @@ import { gmcp } from './gmcp.js';
 import { dom } from './state.js';
 import { flashOutputLine, isOutputLineAvailable, onOutputLine, scrollToOutputLine } from './output.js';
 import { messageMentionsPlayer, normalizeMentionText } from './notification-utils.js';
+import { disposeControllerLifecycle, installControllerLifecycle } from './session-compat/controllers.js';
 
 const MAX_NOTIFICATIONS = 100;
 const RECENT_LINE_LIMIT = 250;
@@ -62,13 +63,19 @@ export const notificationManager = {
   },
 
   init() {
-    this.mount();
-    this.bindButton();
-    onOutputLine((line) => this.recordOutputLine(line));
-    gmcp.on('Char.Status', (data) => this.handleStatus(data));
-    gmcp.on('Comm.Channel', (data) => this.handleChannelText(data));
-    gmcp.on('Comm.Channel.Text', (data) => this.handleChannelText(data));
-    this.render();
+    return installControllerLifecycle(this, 'notifications', gmcp, (scopedGmcp, lifecycle) => {
+      this.mount();
+      this.bindButton();
+      lifecycle.own('subscription', onOutputLine((line) => this.recordOutputLine(line)));
+      scopedGmcp.on('Char.Status', (data) => this.handleStatus(data));
+      scopedGmcp.on('Comm.Channel', (data) => this.handleChannelText(data));
+      scopedGmcp.on('Comm.Channel.Text', (data) => this.handleChannelText(data));
+      this.render();
+    }, () => this.resetSession());
+  },
+
+  dispose() {
+    disposeControllerLifecycle(this);
   },
 
   mount() {
@@ -117,12 +124,12 @@ export const notificationManager = {
     menu.appendChild(list);
     buttonWrap.appendChild(menu);
 
-    document.addEventListener('click', (event) => {
+    this._controllerLifecycle.listen(document, 'click', (event) => {
       if (!this.els.wrap || this.els.wrap.contains(event.target)) return;
       this.close();
     });
 
-    document.addEventListener('keydown', (event) => {
+    this._controllerLifecycle.listen(document, 'keydown', (event) => {
       if (event.key === 'Escape') this.close();
     });
 
@@ -136,7 +143,7 @@ export const notificationManager = {
 
   bindButton() {
     if (!dom.notificationsBtn) return;
-    dom.notificationsBtn.addEventListener('click', (event) => {
+    this._controllerLifecycle.listen(dom.notificationsBtn, 'click', (event) => {
       event.preventDefault();
       event.stopPropagation();
       this.toggle();

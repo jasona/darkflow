@@ -2,8 +2,8 @@
 
 ## Executive Summary
 
-Modernize the Darkflow client frontend with **Vite + Svelte 5 + TypeScript + Zod
-4**, replace the custom panel shell with a proven workspace library, and
+Modernize the Darkflow client frontend with **Vite + Svelte 5 + TypeScript +
+Typia**, replace the custom panel shell with a proven workspace library, and
 introduce a **multi-session architecture** so players can maintain multiple
 simultaneous MUD connections (tabs). The existing Express/Electron server layer
 remains. Native WebSocket connections (`ws`/`wss`) continue to connect directly
@@ -52,17 +52,23 @@ MUD client. The product has outgrown it.
 
 ## Proposed Stack
 
-| Layer                      | Choice                                              | Role                                                                                                  |
-| -------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| **Build / dev**            | [Vite](https://vitejs.dev/)                         | HMR, bundling, dev proxy to Express                                                                   |
-| **UI framework**           | [Svelte 5](https://svelte.dev/)                     | Panel content, settings, tab chrome, app shell                                                        |
-| **Language**               | TypeScript (`strict`)                               | GMCP types, session interfaces, safer refactors                                                       |
-| **Runtime validation**     | [Zod 4](https://zod.dev/)                           | Validate GMCP, configuration, persisted data, and IPC/API payloads; infer TypeScript types            |
-| **Workspace / panels**     | [Dockview](https://dockview.dev/) if Phase 0 passes | Docking, floating panels, tabs, layout serialization through a small Svelte lifecycle adapter         |
-| **Terminal core**          | Port existing `ansi.js` / `output.js`               | Imperative stream rendering (not forced into Svelte)                                                  |
-| **Editor**                 | CodeMirror 6 (bundled)                              | Replace esm.sh CDN imports                                                                            |
-| **Server / desktop shell** | Existing Express + Electron                         | Static assets, `/config.json`, `/api/version`, `/ping`, `/mcp`, `/proxy`, desktop security, packaging |
-| **MUD transport**          | Direct WebSocket or Express bridge                  | `ws`/`wss` connect directly; `telnet`/`telnets` use `/proxy`                                          |
+| Layer                      | Choice                                                | Role                                                                                                                 |
+| -------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **Build / dev**            | [Vite](https://vitejs.dev/)                           | HMR, bundling, dev proxy to Express                                                                                  |
+| **UI framework**           | [Svelte 5](https://svelte.dev/)                       | Panel content, settings, tab chrome, app shell                                                                       |
+| **Language**               | TypeScript 7 (`strict`, pinned toolchain)             | GMCP types, session interfaces, safer refactors                                                                      |
+| **Runtime validation**     | [Typia](https://typia.io/)                            | Generate runtime validators from TypeScript types for GMCP, configuration, persistence, and IPC/API payloads         |
+| **Type transform**         | `[@ttsc/unplugin/vite](https://typia.io/docs/setup/)` | Run the Typia/ttsc transform in Vite before framework plugins; use transformed output in every runtime and test path |
+| **Workspace / panels**     | [Dockview](https://dockview.dev/) if Phase 0 passes   | Docking, floating panels, tabs, layout serialization through a small Svelte lifecycle adapter                        |
+| **Terminal core**          | Port existing `ansi.js` / `output.js`                 | Imperative stream rendering (not forced into Svelte)                                                                 |
+| **Editor**                 | CodeMirror 6 (bundled)                                | Replace esm.sh CDN imports                                                                                           |
+| **Server / desktop shell** | Existing Express + Electron                           | Static assets, `/config.json`, `/api/version`, `/ping`, `/mcp`, `/proxy`, desktop security, packaging                |
+| **MUD transport**          | Direct WebSocket or Express bridge                    | `ws`/`wss` connect directly; `telnet`/`telnets` use `/proxy`                                                         |
+
+At the time of this draft, the `@ttsc/unplugin` path targets the matching
+TypeScript 7 and Typia 13 release-candidate toolchain. Phase 0 pins exact
+compatible versions and treats compiler, transformer, Vite adapter, and Typia as
+one upgrade unit.
 
 ---
 
@@ -105,15 +111,18 @@ the narrowest durable scope that matches its meaning:
 | **Runtime session**      | Ephemeral UUID (`sessionId`)        | Socket, reconnect state, GMCP bus, terminal buffer, scroll position, windows, notifications, active timers                         |
 | **World**                | Server-defined source/world key     | Shareable map data and world metadata                                                                                              |
 
+See [Session and configuration domain model](session-model.md) for graph
+diagrams of the Phase 1 contract.
+
 A character profile may have at most one live runtime session. Two characters
 connecting to the same MUD use distinct character profiles that reference the
 same server profile and may attach the same shared configuration sets. This
 prevents host/port storage collisions without forcing players to duplicate
 useful automation.
 
-Persisted records include schema versions and are validated with Zod before use.
-Server-confirmed character identity may enrich a character profile after login,
-but it is never required as the persistence key.
+Persisted records include schema versions and are validated with generated Typia
+validators before use. Server-confirmed character identity may enrich a
+character profile after login, but it is never required as the persistence key.
 
 ### Shared configuration sets
 
@@ -151,7 +160,7 @@ Each session owns:
 
 - WebSocket connection + reconnect/transport ladder
 - GMCP event bus + subscriptions + `Core.Hello`
-- Zod validation at the GMCP ingress boundary
+- Typia-generated validation at the GMCP ingress boundary
 - Terminal output buffer + render scheduler
 - Workspace instance + runtime panel state
 - Server-driven windows (`Darkwind.Window`)
@@ -169,19 +178,27 @@ payload. Managers do not infer ownership from the active tab or global DOM.
 
 ### Runtime validation policy
 
-- Define Zod schemas for major external packages, beginning with `Darkwind.*`,
-  authentication/status packages, and payloads used by automation.
-- Infer TypeScript payload types from those schemas rather than maintaining
-  parallel handwritten interfaces.
+- Define TypeScript types for major external packages, beginning with
+  `Darkwind.*`, authentication/status packages, and payloads used by automation.
+  Use Typia tags where protocols specify formats, ranges, or lengths.
+- Hoist `typia.createValidate<T>()` and `typia.json.createValidateParse<T>()`
+  factories in plain `.ts` boundary modules so each generated validator is
+  emitted once. Svelte components consume those validators but do not contain
+  Typia transform call sites.
 - Validate once when data crosses into the typed GMCP bus. Internal consumers
   receive validated values.
-- Permit unknown object keys unless the protocol explicitly forbids them,
-  preserving forward compatibility.
+- Use Typia's non-`Equals` validators at forward-compatible protocol boundaries;
+  unknown object keys are allowed while malformed known fields still fail.
+  Reserve `validateEquals` variants for contracts that explicitly forbid extra
+  properties.
 - A malformed payload is logged with its package and session, omitted from typed
   handlers, and exposed to debug tooling; it must not crash or disconnect the
   session.
 - Apply the same boundary rule to `/config.json`, desktop IPC responses, and
   versioned localStorage/IndexedDB records.
+- No untransformed Typia call may reach runtime. Vite builds use `ttsc()` from
+  `@ttsc/unplugin/vite`; non-Vite scripts and tests that execute Typia-bearing
+  modules must use transformed output or the matching ttsc toolchain.
 
 ### Background-session policy
 
@@ -238,13 +255,13 @@ payload. Managers do not infer ownership from the active tab or global DOM.
 
 ## Phased Migration
 
-| Phase                                     | Scope                                                                                                                                                                                                                                                                       | Required gate                                                                                                                               |
-| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| **0 — Decision spike and build contract** | Vite + Svelte 5 + strict TS + Zod 4; prove Svelte mount/update/dispose inside Dockview; serialize/restore/floating panels; build static assets; wire Express, `/proxy`, Docker, and Electron packaging                                                                      | Browser HMR, `npm test`, Electron smoke/package, Docker build, and telnet `/proxy` all pass; approve or reject Dockview                     |
-| **1 — Session core**                      | Extract `Session`, server and character profiles, shared configuration sets, effective-config resolution, scoped transport/reconnect, validated GMCP bus, event envelope, storage schemas/migration, and deterministic disposal; adapt the existing single-session UI to it | One-session behavior remains at parity; malformed GMCP, configuration precedence, shared-set propagation, and reconnect teardown tests pass |
-| **2 — Svelte workspace parity**           | Svelte app shell; approved workspace adapter; split `panel-manager` data responsibilities from layout; migrate panels, settings, terminal host, windows, IDE, input, notifications, sound, and the mobile panel sheet; bundle CodeMirror                                    | Single-session web, Electron, and mobile feature-parity matrix passes                                                                       |
-| **3 — Multi-connection**                  | Tab create/close/switch/reorder; multiple character profiles on one server profile; shared-set attachment/duplicate/detach UX; background policy; session-aware notifications                                                                                               | Four concurrent sessions remain isolated while selected configuration changes propagate atomically across attached profiles                 |
-| **4 — Cleanup**                           | Remove legacy `public/js/` paths and compatibility adapters; update protocol docs and debug tooling                                                                                                                                                                         | One frontend source tree; all release gates pass                                                                                            |
+| Phase                                     | Scope                                                                                                                                                                                                                                                                                                                     | Required gate                                                                                                                                                                                       |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **0 — Decision spike and build contract** | Pin compatible TypeScript 7, Typia, ttsc, and `@ttsc/unplugin` versions; register `ttsc()` before the Svelte Vite plugin; prove transformed validation in dev, HMR, tests, and production; prove Svelte mount/update/dispose inside Dockview; build static assets; wire Express, `/proxy`, Docker, and Electron packaging | Typia transform sentinel, validator regeneration after imported-type edits, browser HMR, `npm test`, Electron smoke/package, Docker build, and telnet `/proxy` all pass; approve or reject Dockview |
+| **1 — Session core**                      | Extract `Session`, server and character profiles, shared configuration sets, effective-config resolution, scoped transport/reconnect, validated GMCP bus, event envelope, storage schemas/migration, and deterministic disposal; adapt the existing single-session UI to it                                               | One-session behavior remains at parity; malformed GMCP, configuration precedence, shared-set propagation, and reconnect teardown tests pass                                                         |
+| **2 — Svelte workspace parity**           | Svelte app shell; approved workspace adapter; split `panel-manager` data responsibilities from layout; migrate panels, settings, terminal host, windows, IDE, input, notifications, sound, and the mobile panel sheet; bundle CodeMirror                                                                                  | Single-session web, Electron, and mobile feature-parity matrix passes                                                                                                                               |
+| **3 — Multi-connection**                  | Tab create/close/switch/reorder; multiple character profiles on one server profile; shared-set attachment/duplicate/detach UX; background policy; session-aware notifications                                                                                                                                             | Four concurrent sessions remain isolated while selected configuration changes propagate atomically across attached profiles                                                                         |
+| **4 — Cleanup**                           | Remove legacy `public/js/` paths and compatibility adapters; update protocol docs and debug tooling                                                                                                                                                                                                                       | One frontend source tree; all release gates pass                                                                                                                                                    |
 
 Phases are sequential at their gates. Independent panel ports may proceed in
 parallel only after the Phase 1 interfaces are frozen. Multi-connection is not
@@ -260,6 +277,10 @@ behavior.
 - Phase 0 evaluates Vite middleware mode inside Express as the default
   development architecture. It preserves one origin for Electron cookies,
   `/proxy`, and HMR.
+- `vite.config.ts` registers `ttsc()` from `@ttsc/unplugin/vite` before the
+  Svelte plugin. Typia call sites live in plain `.ts` boundary modules.
+- HMR validation includes changing an imported protocol type and confirming that
+  its generated validator changes without restarting the dev server.
 - If a separate Vite server is retained, it must proxy `/api/*`, `/config.json`,
   `/ping`, `/mcp`, `/vendor/*`, and WebSocket upgrades for `/proxy`.
 - `ws`/`wss` MUD connections remain direct. `telnet`/`telnets` continue through
@@ -278,7 +299,8 @@ behavior.
 
 **Release gates**
 
-- Root `npm test`, including migrated source imports and server lifecycle tests
+- Root `npm test`, including migrated source imports, server lifecycle tests,
+  Typia transform sentinels, and tests executed from transformed validator code
 - Electron smoke test, unpacked package, and release validation
 - Docker image build and startup smoke test
 - Direct `ws`/`wss` and bridged `telnet`/`telnets`
@@ -295,13 +317,15 @@ behavior.
 | Large rewrite introduces regressions           | Sequential gates, explicit feature-parity matrix, browser E2E coverage, and existing unit/release tests; MCP is supplementary rather than the UI regression harness |
 | Dockview lacks an official Svelte binding      | Phase 0 lifecycle spike; keep workspace integration behind a small adapter; reject Dockview if disposal, floating, touch, or serialization is unreliable            |
 | `panel-manager.js` mixes layout and game state | Extract GMCP subscriptions and cached data into session controllers before replacing layout code                                                                    |
-| Session storage collides at the same endpoint  | Separate server and character UUIDs, versioned Zod-validated records, and one live session per character profile                                                    |
+| Session storage collides at the same endpoint  | Separate server and character UUIDs, versioned Typia-validated records, and one live session per character profile                                                  |
 | Shared automation changes leak runtime state   | Share immutable definition snapshots only; keep timers, cooldowns, GMCP variables, and match state inside each runtime session                                      |
 | Shared definitions conflict                    | Ordered set references, deterministic identity-based replacement, profile-local precedence, and source labels in the settings UI                                    |
 | Background tabs consume CPU/memory             | Per-session scrollback limits, inactive render throttling, deterministic teardown, and four-session soak tests                                                      |
 | Session events or auth actions cross-talk      | `sessionId` event envelopes; no ownership inferred from active DOM; focused E2E tests                                                                               |
 | Electron, Docker, or telnet transport breaks   | Treat packaging, static paths, cookie/origin checks, and `/proxy` as Phase 0 gates                                                                                  |
-| Server evolves GMCP payloads                   | Zod schemas permit unknown keys by default and reject malformed known fields without terminating the session                                                        |
+| Server evolves GMCP payloads                   | Non-`Equals` Typia validators allow unknown keys and reject malformed known fields without terminating the session                                                  |
+| Typia transform is omitted or stale            | Pin the TypeScript 7/Typia/ttsc toolchain; keep call sites in `.ts` boundary modules; run build sentinels and imported-type HMR tests in Phase 0 and CI             |
+| TypeScript 7 or Typia 13 compatibility shifts  | Treat exact compiler/transform versions as one tested unit and upgrade them deliberately rather than through independent semver ranges                              |
 
 ---
 
@@ -375,39 +399,68 @@ phased migration without a long-lived production feature flag.
 ## Success Criteria
 
 - [ ] Four simultaneous sessions, including multiple character profiles using
-      the same server profile
+  ```
+  the same server profile
+  ```
 - [ ] Disconnecting, reconnecting, or closing one session does not change
-      another session's socket, GMCP state, timers, windows, terminal, or
-      notifications
+  ```
+  another session's socket, GMCP state, timers, windows, terminal, or
+  notifications
+  ```
 - [ ] Two character profiles on the same server can attach the same alias,
-      trigger, highlight, function, key-map, and timer-definition sets
+  ```
+  trigger, highlight, function, key-map, and timer-definition sets
+  ```
 - [ ] Editing a shared set updates attached live sessions atomically without
-      sharing timer, trigger, GMCP-variable, or other runtime execution state
+  ```
+  sharing timer, trigger, GMCP-variable, or other runtime execution state
+  ```
 - [ ] Configuration conflicts resolve deterministically; profile-local entries
-      override shared entries and the UI identifies each entry's source
+  ```
+  override shared entries and the UI identifies each entry's source
+  ```
 - [ ] Shared sets can be duplicated or detached without changing the original;
-      input history and workspace persistence remain character-profile-owned
+  ```
+  input history and workspace persistence remain character-profile-owned
+  ```
 - [ ] World map data can be shared deliberately without sharing session view
-      state
+  ```
+  state
+  ```
 - [ ] Background sessions process network data and automation without stealing
-      focus or growing unbounded DOM/listener state
-- [ ] Zod validates major GMCP packages and persisted/config/IPC boundaries;
-      malformed payloads cannot crash a session
+  ```
+  focus or growing unbounded DOM/listener state
+  ```
+- [ ] Typia-generated validators cover major GMCP packages and
+  ```
+  persisted/config/IPC boundaries; malformed payloads cannot crash a session
+  ```
+- [ ] CI proves that the Typia transform ran and that editing an imported
+  ```
+  protocol type regenerates the corresponding validator
+  ```
 - [ ] Single-session feature-parity matrix passes for maps, IDE, windows,
-      combat, sound, mobile panel-sheet behavior, accessibility, and debug
-      tooling
+  ```
+  combat, sound, mobile panel-sheet behavior, accessibility, and debug
+  tooling
+  ```
 - [ ] Vite HMR works; production web, Docker, Electron, and Steam packages
-      consume the same built frontend
+  ```
+  consume the same built frontend
+  ```
 - [ ] Direct and bridged transports pass: `ws`, `wss`, `telnet`, and `telnets`
 - [ ] Root tests, browser E2E, Electron release gates, and the separate MCP web
-      harness pass
+  ```
+  harness pass
+  ```
 
 ---
 
 ## Recommendation
 
-**Approve Vite + Svelte 5 + strict TypeScript + Zod 4. Conditionally approve
-Dockview only after Phase 0 proves the Svelte lifecycle adapter and deployment
+**Approve Vite + Svelte 5 + strict TypeScript + Typia using**
+`@ttsc/unplugin/vite`**. Conditionally approve Dockview only after Phase 0 proves
+the Svelte lifecycle adapter, Typia transformer paths, and deployment
 contract.** Keep Electron + embedded Express for this migration.
 
 Start with the decision spike, then extract the session core under the current

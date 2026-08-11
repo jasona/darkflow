@@ -1,5 +1,13 @@
 import { dom } from './state.js';
 import { FG_NAMES, BRIGHT_FG_NAMES, COLOR_256 } from './constants.js';
+import {
+  getActiveCharacterProfileId,
+  getEffectiveDefinitions,
+  isConfigurationCompatActive,
+  removeLocalDefinitionByIdentity,
+  replaceLocalDefinitions,
+  upsertLocalDefinitionByIdentity,
+} from './session-compat/configuration.js';
 
 const HIGHLIGHT_STORAGE_KEY = 'darkwind-client-highlights-v1';
 const COLOR_INDEX_BY_NAME = FG_NAMES.reduce((map, name, index) => {
@@ -153,6 +161,25 @@ function normalizeScope(scope) {
     : [];
 
   return { rules };
+}
+
+function highlightIdentityKey(patternSource) {
+  return String(patternSource || '').trim();
+}
+
+function cloneHighlightRule(rule) {
+  return {
+    ...rule,
+    style: { ...rule.style },
+  };
+}
+
+function getEffectiveHighlightEntries() {
+  return getEffectiveDefinitions('highlights');
+}
+
+function getEffectiveHighlightRules() {
+  return getEffectiveHighlightEntries().map((entry) => cloneHighlightRule(entry.definition));
 }
 
 function normalizeData(data) {
@@ -422,6 +449,9 @@ export const highlightManager = {
   },
 
   getActiveScopeKey() {
+    if (isConfigurationCompatActive()) {
+      return getActiveCharacterProfileId();
+    }
     const host = normalizeWhitespace(dom.host && dom.host.value ? dom.host.value : '').toLowerCase() || 'default';
     const port = normalizeWhitespace(dom.port && dom.port.value ? dom.port.value : '') || '4242';
     // Preserve existing scope keys: secure (wss/telnets) → 'wss', plain → 'ws'.
@@ -438,16 +468,38 @@ export const highlightManager = {
   },
 
   getScopeSnapshot(scopeKey = this.getActiveScopeKey()) {
+    if (isConfigurationCompatActive()) {
+      return {
+        rules: getEffectiveHighlightRules(),
+      };
+    }
     const scope = normalizeScope(this._ensureScope(scopeKey));
     return {
-      rules: scope.rules.map((rule) => ({
-        ...rule,
-        style: { ...rule.style },
-      })),
+      rules: scope.rules.map((rule) => cloneHighlightRule(rule)),
+    };
+  },
+
+  getScopeSnapshotWithSource(scopeKey = this.getActiveScopeKey()) {
+    if (isConfigurationCompatActive()) {
+      return {
+        rules: getEffectiveHighlightEntries().map((entry) => ({
+          ...cloneHighlightRule(entry.definition),
+          source: entry.source,
+        })),
+      };
+    }
+    const scope = normalizeScope(this._ensureScope(scopeKey));
+    return {
+      rules: scope.rules.map((rule) => cloneHighlightRule(rule)),
     };
   },
 
   saveScope(scopeKey, scope) {
+    if (isConfigurationCompatActive()) {
+      replaceLocalDefinitions('highlights', normalizeScope(scope).rules);
+      emitHighlightDataChanged({ scopeKey });
+      return;
+    }
     this._data.scopes[scopeKey] = normalizeScope(scope);
     this._save({ scopeKey });
   },
@@ -469,13 +521,36 @@ export const highlightManager = {
   },
 
   findRuleByPattern(patternSource, scopeKey = this.getActiveScopeKey()) {
-    const normalizedPattern = String(patternSource || '').trim();
+    const normalizedPattern = highlightIdentityKey(patternSource);
     if (!normalizedPattern) return null;
+    if (isConfigurationCompatActive()) {
+      const entry = getEffectiveHighlightEntries().find(
+        (item) => highlightIdentityKey(item.definition.patternSource) === normalizedPattern,
+      );
+      return entry ? cloneHighlightRule(entry.definition) : null;
+    }
     return this._ensureScope(scopeKey).rules.find((rule) => rule.patternSource === normalizedPattern) || null;
   },
 
+  findRuleByPatternWithSource(patternSource, scopeKey = this.getActiveScopeKey()) {
+    const normalizedPattern = highlightIdentityKey(patternSource);
+    if (!normalizedPattern) return null;
+    if (isConfigurationCompatActive()) {
+      const entry = getEffectiveHighlightEntries().find(
+        (item) => highlightIdentityKey(item.definition.patternSource) === normalizedPattern,
+      );
+      if (!entry) return null;
+      return {
+        ...cloneHighlightRule(entry.definition),
+        source: entry.source,
+      };
+    }
+    const rule = this.findRuleByPattern(patternSource, scopeKey);
+    return rule ? cloneHighlightRule(rule) : null;
+  },
+
   upsertSimpleRule(patternSource, styleText, scopeKey = this.getActiveScopeKey()) {
-    const normalizedPattern = String(patternSource || '').trim();
+    const normalizedPattern = highlightIdentityKey(patternSource);
     if (!normalizedPattern) {
       return { rule: null, error: 'Highlight pattern is required.' };
     }
@@ -485,7 +560,6 @@ export const highlightManager = {
       return { rule: null, error: parsedStyle.error };
     }
 
-    const scope = this._ensureScope(scopeKey);
     const existing = this.findRuleByPattern(normalizedPattern, scopeKey);
     const rule = existing || this.createEmptyRule();
 
@@ -499,23 +573,36 @@ export const highlightManager = {
       return { rule: null, error: compiled.error };
     }
 
-    if (!existing) {
-      scope.rules.push(rule);
+    if (isConfigurationCompatActive()) {
+      const normalizedRule = normalizeRule(rule);
+      if (!normalizedRule) {
+        return { rule: null, error: 'Highlight pattern is required.' };
+      }
+      upsertLocalDefinitionByIdentity('highlights', normalizedRule);
+      emitHighlightDataChanged({ scopeKey });
+    } else {
+      const scope = this._ensureScope(scopeKey);
+      if (!existing) {
+        scope.rules.push(rule);
+      }
+      this._save({ scopeKey });
     }
 
-    this._save({ scopeKey });
     return {
-      rule: {
-        ...rule,
-        style: { ...rule.style },
-      },
+      rule: cloneHighlightRule(rule),
       error: null,
     };
   },
 
   removeRuleByPattern(patternSource, scopeKey = this.getActiveScopeKey()) {
-    const normalizedPattern = String(patternSource || '').trim();
+    const normalizedPattern = highlightIdentityKey(patternSource);
     if (!normalizedPattern) return false;
+
+    if (isConfigurationCompatActive()) {
+      const removed = removeLocalDefinitionByIdentity('highlights', normalizedPattern);
+      if (removed) emitHighlightDataChanged({ scopeKey });
+      return removed;
+    }
 
     const scope = this._ensureScope(scopeKey);
     const nextRules = scope.rules.filter((rule) => rule.patternSource !== normalizedPattern);
@@ -564,8 +651,12 @@ export const highlightManager = {
   },
 
   getCompiledRules(scopeKey = this.getActiveScopeKey(), scopeOverride = null) {
-    const sourceScope = scopeOverride ? normalizeScope(scopeOverride) : this._ensureScope(scopeKey);
-    return sourceScope.rules
+    const rules = scopeOverride
+      ? normalizeScope(scopeOverride).rules
+      : (isConfigurationCompatActive()
+        ? getEffectiveHighlightRules()
+        : this._ensureScope(scopeKey).rules);
+    return rules
       .filter((rule) => rule.enabled !== false)
       .map((rule) => {
         const compiled = compileRule(rule);

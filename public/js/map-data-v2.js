@@ -184,6 +184,19 @@ export function resetForConnection() {
   }
 }
 
+/** Cancels session-bound map work without issuing protocol traffic. */
+export function disposeMapDataLifecycle() {
+  loadToken++;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = null;
+  dirtyAreas.clear();
+  clearCurrentRequest();
+  clearCurrentRetry();
+  cancelAllSyncs();
+  protocol2Known = false;
+  active = false;
+}
+
 function safeSlug(value) {
   return String(value || 'darkwind').toLowerCase()
     .replace(/[^a-z0-9._:-]+/g, '-').replace(/^-+|-+$/g, '') || 'darkwind';
@@ -472,7 +485,9 @@ export async function load() {
     mapEpoch = loadedEpoch;
     active = rooms.size > 0;
   } catch (e) {
-    storageError = e && e.message ? e.message : 'Map cache unavailable';
+    if (token === loadToken) {
+      storageError = e && e.message ? e.message : 'Map cache unavailable';
+    }
   }
 }
 

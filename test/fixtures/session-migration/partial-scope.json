@@ -1,0 +1,34 @@
+{
+  "aliases": {
+    "scopes": {
+      "wss://partial.example.com:4242": {
+        "aliases": [
+          {
+            "id": "alias-partial",
+            "enabled": true,
+            "trigger": "inventory",
+            "description": "",
+            "group": "",
+            "isRegex": false,
+            "ignoreCase": true,
+            "steps": [
+              {
+                "type": "send_command",
+                "template": "inventory"
+              }
+            ]
+          }
+        ],
+        "variables": {}
+      }
+    }
+  },
+  "config": {
+    "host": "partial.example.com",
+    "port": 4242,
+    "wss": true,
+    "gameName": "",
+    "hiddenPanels": []
+  },
+  "urlSearchParams": ""
+}

@@ -1,0 +1,10 @@
+{
+  "config": {
+    "host": "",
+    "port": 4242,
+    "wss": true,
+    "gameName": "",
+    "hiddenPanels": []
+  },
+  "urlSearchParams": ""
+}

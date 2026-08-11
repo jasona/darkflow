@@ -1,8 +1,10 @@
 import { state, dom, initDom } from './state.js';
 import { gmcp } from './gmcp.js';
-import { appendSystemMessage, initOutput } from './output.js';
+import { createControllerLifecycle } from './session-compat/controllers.js';
+import { appendOutput, appendSystemMessage, initOutput } from './output.js';
 import { panelManager } from './panel-manager.js';
-import { connect, getWsDebugSnapshot, retryNow, ensureConnected } from './connection.js';
+import { connect, getWsDebugSnapshot, retryNow, ensureConnected, installLegacyOnlineFallback, wireActiveSessionLifecycle } from './connection.js';
+import { isSessionRuntimeActive, markLegacyUiReady, bindLegacyUiTargets, bindSessionTextOutput } from './session-compat/runtime.js';
 import { connectionOverlay } from './connection-overlay.js';
 import { loadHistory, saveHistory, saveHistoryNow, initInput } from './input.js';
 import { windowManager } from './window-manager.js';
@@ -35,9 +37,20 @@ import { initRfc2549Debug } from './rfc2549-debug.js';
 import { initializeDesktopUpdates } from './desktop-integration.js';
 import { streetSamuraiDashboardManager } from './street-samurai-dashboard-manager.js';
 
+const appSession = createControllerLifecycle('app-session');
+const appGmcp = appSession.bindGmcp(gmcp);
+
 // ── Initialize DOM refs ─────────────────────────────────────────────
 initDom();
 initOutput();
+if (isSessionRuntimeActive()) {
+  bindSessionTextOutput(appendOutput);
+  bindLegacyUiTargets(state, dom);
+  markLegacyUiReady();
+  appSession.own('subscription', wireActiveSessionLifecycle());
+} else {
+  installLegacyOnlineFallback(appSession);
+}
 
 const startupUrlParams = new URLSearchParams(window.location.search);
 const wsDebugEnabled = startupUrlParams.get('debugWs') === '1';
@@ -89,7 +102,7 @@ function formatBytes(n) {
   return (n / 1048576).toFixed(1) + ' MB';
 }
 
-setInterval(function() {
+appSession.setInterval(function() {
   if (state.connectTime) {
     const transportTag = state.activeTransport ? ' [' + state.activeTransport + ']' : '';
     dom.statusConnection.textContent = 'Connected' + transportTag + ': ' +
@@ -116,7 +129,7 @@ function isGmcpDebugFloatingLayout() {
 }
 
 function scrollGmcpDebugToBottom() {
-  window.requestAnimationFrame(function() {
+  appSession.requestAnimationFrame(function() {
     const target = dom.gmcpPanel.classList.contains('gmcp-panel-floating')
       ? gmcpEntriesEl
       : dom.gmcpPanel;
@@ -244,7 +257,7 @@ const gmcpCopyBtn = makeGmcpBtn('Copy All');
 gmcpCopyBtn.addEventListener('click', function() {
   navigator.clipboard.writeText(gmcpEntries.join('\n')).then(function() {
     gmcpCopyBtn.textContent = 'Copied!';
-    setTimeout(function() { gmcpCopyBtn.textContent = 'Copy All'; }, 1500);
+    appSession.setTimeout(function() { gmcpCopyBtn.textContent = 'Copy All'; }, 1500);
   });
 });
 
@@ -261,7 +274,7 @@ mapExportBtn.addEventListener('click', function() {
   const json = window.mapDebug.exportAll();
   navigator.clipboard.writeText(json).then(function() {
     mapExportBtn.textContent = 'Copied!';
-    setTimeout(function() { mapExportBtn.textContent = 'Map Export'; }, 1500);
+    appSession.setTimeout(function() { mapExportBtn.textContent = 'Map Export'; }, 1500);
   });
 });
 
@@ -280,13 +293,13 @@ gmcpToolbar.appendChild(gmcpCopyBtn);
 dom.gmcpPanel.appendChild(gmcpToolbar);
 dom.gmcpPanel.appendChild(gmcpEntriesEl);
 
-window.addEventListener('darkflow:workspace-layout-changed', syncGmcpDebugLayout);
+appSession.listen(window, 'darkflow:workspace-layout-changed', syncGmcpDebugLayout);
 
 if (gmcpDebugEnabled) {
   setGmcpDebugVisible(true);
 }
 
-gmcp.on('*', function(packageName, data) {
+appGmcp.on('*', function(packageName, data) {
   if (wsDebugEnabled) {
     console.log('[GMCP]', packageName, data);
   }
@@ -349,7 +362,7 @@ function setClientVersion(version) {
   updateVersionDisplay();
 }
 
-gmcp.on('Game', function(data) {
+appGmcp.on('Game', function(data) {
   if (data && data.game_uptime !== undefined) {
     dom.statusUptime.textContent = 'Uptime: ' + formatUptime(data.game_uptime);
   }
@@ -400,14 +413,14 @@ document.getElementById('left-dock-toggle').addEventListener('click', function()
   const dock = document.getElementById('left-dock');
   const collapsed = !dock.classList.contains('collapsed');
   panelManager.setDockCollapsed('left', collapsed);
-  setTimeout(() => panelManager.repositionSnappedPanels(), 310);
+  appSession.setTimeout(() => panelManager.repositionSnappedPanels(), 310);
 });
 
 document.getElementById('right-dock-toggle').addEventListener('click', function() {
   const dock = document.getElementById('right-dock');
   const collapsed = !dock.classList.contains('collapsed');
   panelManager.setDockCollapsed('right', collapsed);
-  setTimeout(() => panelManager.repositionSnappedPanels(), 310);
+  appSession.setTimeout(() => panelManager.repositionSnappedPanels(), 310);
 });
 
 dom.mobilePanelsBtn.addEventListener('click', function() {
@@ -516,7 +529,7 @@ window.soundDebug = {
 initInput();
 dom.commandInput.focus();
 
-document.addEventListener('visibilitychange', function() {
+appSession.listen(document, 'visibilitychange', function() {
   emitCurrentTabObservabilityState();
 });
 
@@ -534,6 +547,7 @@ if (dom.connectionState) {
     characterData: true,
     subtree: true,
   });
+  appSession.ownObserver(statusObserver);
 }
 
 window.connDebug = {

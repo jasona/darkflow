@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { retryNow, disconnect } from './connection.js';
 import { windowManager } from './window-manager.js';
+import { createControllerLifecycle, disposeControllerLifecycle } from './session-compat/controllers.js';
 
 // Reconnecting overlay: a small centered modal with a spinner that
 // replaces the old "Reconnecting in Ns..." terminal spam. It only
@@ -20,12 +21,28 @@ export const connectionOverlay = {
   nextAttemptAt: 0,
 
   init() {
-    document.addEventListener('dw:connectionstate', (event) => {
+    if (this._controllerLifecycle) return this._controllerLifecycle.dispose;
+    const lifecycle = createControllerLifecycle('connection-overlay', () => {
+      this._stopCountdown();
+      if (this.el) this.el.remove();
+      this.el = null;
+      this.statusEl = null;
+      this.detailEl = null;
+      this.spinnerEl = null;
+      this.retryBtn = null;
+      this.stopBtn = null;
+      this.lastStatus = null;
+      this.nextAttemptAt = 0;
+      this._controllerLifecycle = null;
+    });
+    this._controllerLifecycle = lifecycle;
+
+    lifecycle.listen(document, 'dw:connectionstate', (event) => {
       const detail = event.detail || {};
       if (detail.state === 'connected') this._onConnected();
       this._render();
     });
-    document.addEventListener('dw:reconnectstatus', (event) => {
+    lifecycle.listen(document, 'dw:reconnectstatus', (event) => {
       const detail = event.detail || {};
       this.lastStatus = detail;
       if (detail.status === 'scheduled' && detail.nextAttemptAt) {
@@ -34,7 +51,12 @@ export const connectionOverlay = {
       if (detail.status === 'connected') this._onConnected();
       this._render();
     });
-    document.addEventListener('dw:authwindowchange', () => this._render());
+    lifecycle.listen(document, 'dw:authwindowchange', () => this._render());
+    return lifecycle.dispose;
+  },
+
+  dispose() {
+    disposeControllerLifecycle(this);
   },
 
   _ensureDom() {
@@ -64,13 +86,13 @@ export const connectionOverlay = {
     this.retryBtn.type = 'button';
     this.retryBtn.className = 'dw-button dw-button-primary';
     this.retryBtn.textContent = 'Retry now';
-    this.retryBtn.addEventListener('click', () => retryNow());
+    this._controllerLifecycle.listen(this.retryBtn, 'click', () => retryNow());
 
     this.stopBtn = document.createElement('button');
     this.stopBtn.type = 'button';
     this.stopBtn.className = 'dw-button';
     this.stopBtn.textContent = 'Stop trying';
-    this.stopBtn.addEventListener('click', () => {
+    this._controllerLifecycle.listen(this.stopBtn, 'click', () => {
       disconnect();
       this._hide();
     });
@@ -148,7 +170,7 @@ export const connectionOverlay = {
 
   _startCountdown(attempt, transport) {
     if (this.countdownTimer) return;
-    this.countdownTimer = setInterval(() => {
+    this.countdownTimer = this._controllerLifecycle.setInterval(() => {
       this._updateCountdown(attempt, transport);
     }, 250);
   },
@@ -162,7 +184,7 @@ export const connectionOverlay = {
 
   _stopCountdown() {
     if (!this.countdownTimer) return;
-    clearInterval(this.countdownTimer);
+    this.countdownTimer();
     this.countdownTimer = null;
   },
 

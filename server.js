@@ -1,4 +1,5 @@
 const express = require('express');
+const os = require('os');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -6,6 +7,7 @@ const crypto = require('crypto');
 const net = require('net');
 const tls = require('tls');
 const { WebSocketServer } = require('ws');
+const { validateClientArtifact } = require('./lib/client-artifact');
 
 // Load .env file if it exists (no dependency needed)
 try {
@@ -25,6 +27,18 @@ const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const DESKTOP_COOKIE_NAME = 'darkflow-desktop-token';
 const HOWLER_CORE_PATH = require.resolve('howler/dist/howler.core.min.js');
+const PUBLIC_CLIENT_ROOT = path.join(__dirname, 'public');
+const BUILT_CLIENT_ROOT = path.join(__dirname, 'dist', 'client');
+const PACKAGE_VERSION = require('./package.json').version;
+let initPromise = null;
+let serveInfo = { mode: null, mcp: null };
+let devClient = null;
+let selectedClientRoot = null;
+let selectedStaticMiddleware = null;
+let selectedDevMiddleware = null;
+let selectedDevPhaseRoute = null;
+let selectedDevRootRoute = null;
+let frontendMiddlewareMounted = false;
 
 function hasDesktopSession(req) {
   if (process.env.DARKFLOW_DESKTOP !== '1') return true;
@@ -64,12 +78,16 @@ app.get('/config.json', (req, res) => {
 // Client version endpoint (no caching so stale tabs always get current version)
 app.get('/api/version', (req, res) => {
   res.set('Cache-Control', 'no-store');
-  const versionFile = path.join(__dirname, 'public', 'version.json');
+  const versionFile = path.join(selectedClientRoot || PUBLIC_CLIENT_ROOT, 'version.json');
   try {
     const data = JSON.parse(fs.readFileSync(versionFile, 'utf8'));
     res.json(data);
   } catch(e) {
-    res.json({ version: 'unknown' });
+    if (serveInfo.mode === 'built') {
+      res.status(500).json({ error: 'Built client version is unavailable' });
+    } else {
+      res.json({ version: 'unknown' });
+    }
   }
 });
 
@@ -84,36 +102,15 @@ app.get('/vendor/howler.core.min.js', (req, res) => {
   res.sendFile(HOWLER_CORE_PATH);
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Mount the Darkflow MCP relay at /mcp (optional) so starting this web client
-// also serves MCP for LLM clients on the same port. The relay lives in the
-// sibling mud-test-mcp package; it is loaded dynamically and skipped gracefully
-// if absent or unable to load, so it can never break the web client. Configure
-// with MCP_PATH / MCP_AUTH_TOKEN; disable entirely with MCP_ENABLED=0.
-if (process.env.MCP_ENABLED !== '0') {
-  const { pathToFileURL } = require('url');
-  const mcpModule = path.join(__dirname, 'mud-test-mcp', 'core', 'mcp.js');
-  import(pathToFileURL(mcpModule).href)
-    .then(({ attachMcp }) => {
-      const info = attachMcp(app, {
-        path: process.env.MCP_PATH || '/mcp',
-        token: process.env.MCP_AUTH_TOKEN,
-      });
-      console.log(`[mcp] mounted at ${info.path}` + (info.authenticated ? ' (bearer auth on)' : ' (open)'));
-    })
-    .catch((err) => console.warn('[mcp] not mounted:', err.message));
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// /proxy : WebSocket ↔ TCP/TLS bridge for connecting to non-WebSocket MUDs.
+// -----------------------------------------------------------------------------
+// /proxy : WebSocket <-> TCP/TLS bridge for connecting to non-WebSocket MUDs.
 //
 // Browser opens   ws[s]://<this-server>/proxy?host=X&port=Y&tls=0|1
 // We open         net.connect({host, port}) or tls.connect(...)
 // and pipe bytes both ways unmodified.
 //
 // v1: open relay with logging. Future: allowlist (see docs).
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
 
 // Telnet/GMCP parser lives in lib/telnet-parser.js so it can be shared with
 // out-of-process tooling (e.g. the headless MUD test harness) without pulling
@@ -129,6 +126,10 @@ const { IAC, DO, TELOPT_GMCP } = constants;
 // to bound memory if a non-GMCP MUD is connected.
 const MAX_PENDING_GMCP_BYTES = 64 * 1024;
 
+const devMode = process.argv.includes('--dev');
+if (devMode && !process.env.DARKFLOW_LOG_DIR) {
+  process.env.DARKFLOW_LOG_DIR = path.join(os.tmpdir(), 'darkflow-dev-log');
+}
 const LOG_DIR = process.env.DARKFLOW_LOG_DIR || path.join(__dirname, 'log');
 const PROXY_LOG = path.join(LOG_DIR, 'proxy.log');
 try { fs.mkdirSync(LOG_DIR, { recursive: true }); } catch(e) { /* ignore */ }
@@ -143,7 +144,18 @@ function logProxy(entry) {
 }
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/proxy' });
+const wss = new WebSocketServer({ noServer: true });
+
+server.on('upgrade', (req, socket, head) => {
+  const { pathname } = new URL(req.url, 'http://localhost');
+  if (pathname === '/proxy') {
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+    return;
+  }
+  if (devClient && devClient.claimsUpgrade(req)) return;
+  socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+  socket.destroy();
+});
 
 wss.on('error', (error) => {
   console.error('[proxy] WebSocket server error:', error.message);
@@ -333,13 +345,133 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-function startServer({ port = PORT, host = process.env.HOST } = {}) {
+/**
+ * Mounts the optional MCP relay before the selected frontend middleware.
+ */
+async function initializeApp(mode) {
+  if (!['dev', 'built'].includes(mode)) {
+    throw new Error(`Unknown serve mode: ${mode}`);
+  }
+
+  const clientRoot = mode === 'dev' ? PUBLIC_CLIENT_ROOT : BUILT_CLIENT_ROOT;
+  if (mode === 'built') {
+    try {
+      await validateClientArtifact({
+        artifactDir: BUILT_CLIENT_ROOT,
+        expectedVersion: PACKAGE_VERSION,
+      });
+    } catch (error) {
+      throw new Error(
+        `Built client artifact is missing or invalid. Run \`npm run build\` and retry. ${error.message}`,
+        { cause: error },
+      );
+    }
+  }
+
+  selectedClientRoot = clientRoot;
+  selectedStaticMiddleware = express.static(clientRoot);
+
+  const mcpPath = process.env.MCP_PATH || '/mcp';
+  if (process.env.MCP_ENABLED === '0') {
+    serveInfo.mcp = { mounted: false, path: mcpPath, reason: 'disabled' };
+  } else {
+    const { pathToFileURL } = require('url');
+    const mcpModule = path.join(__dirname, 'mud-test-mcp', 'core', 'mcp.js');
+    let timeout;
+    try {
+      const module = await Promise.race([
+        import(pathToFileURL(mcpModule).href),
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('mount timed out')), 5000);
+        }),
+      ]);
+      const info = module.attachMcp(app, {
+        path: mcpPath,
+        token: process.env.MCP_AUTH_TOKEN,
+      });
+      serveInfo.mcp = { mounted: true, path: info.path, reason: null };
+      console.log(`[mcp] mounted at ${info.path}` + (info.authenticated ? ' (bearer auth on)' : ' (open)'));
+    } catch (error) {
+      serveInfo.mcp = { mounted: false, path: mcpPath, reason: error.message };
+      console.warn('[mcp] not mounted:', error.message);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  // Mount stable frontend dispatchers after MCP only once. Their selected
+  // handlers are lifecycle state, so restarts do not retain old static roots
+  // or closed Vite server graphs in Express's persistent middleware stack.
+  if (!frontendMiddlewareMounted) {
+    app.use((req, res, next) => {
+      if (!selectedStaticMiddleware) return next();
+      return selectedStaticMiddleware(req, res, next);
+    });
+    app.use((req, res, next) => {
+      if (!selectedDevMiddleware) return next();
+      return selectedDevMiddleware(req, res, next);
+    });
+    app.get(['/phase0/', '/phase0/index.html'], (req, res, next) => {
+      if (!selectedDevPhaseRoute) return next();
+      return selectedDevPhaseRoute(req, res, next);
+    });
+    app.get(['/', '/index.html'], (req, res, next) => {
+      if (!selectedDevRootRoute) return next();
+      return selectedDevRootRoute(req, res, next);
+    });
+    frontendMiddlewareMounted = true;
+  }
+
+  if (mode === 'dev') {
+    const client = await require('./lib/dev-client.js').attachDevClient({
+      server,
+      root: __dirname,
+    });
+    devClient = client;
+    selectedDevMiddleware = client.middleware;
+    selectedDevPhaseRoute = client.servePhase0;
+    selectedDevRootRoute = client.serveRoot;
+  }
+  serveInfo.mode = mode;
+}
+
+/** Clears replaceable frontend lifecycle state and closes its Vite server. */
+async function resetClientState() {
+  const clientToClose = devClient;
+  devClient = null;
+  initPromise = null;
+  selectedClientRoot = null;
+  selectedStaticMiddleware = null;
+  selectedDevMiddleware = null;
+  selectedDevPhaseRoute = null;
+  selectedDevRootRoute = null;
+  serveInfo = { mode: null, mcp: null };
+  await clientToClose?.close();
+}
+
+/**
+ * Starts the shared HTTP server after initializing its selected serve mode.
+ */
+async function startServer({ port = PORT, host = process.env.HOST, mode = 'built' } = {}) {
   if (server.listening) return Promise.resolve(server.address());
+  const initialization = initPromise ??= initializeApp(mode);
+  try {
+    await initialization;
+  } catch (error) {
+    if (initPromise === initialization) await resetClientState();
+    throw error;
+  }
 
   return new Promise((resolve, reject) => {
     const onError = (error) => {
       server.off('listening', onListening);
-      reject(error);
+      resetClientState().then(
+        () => reject(error),
+        (cleanupError) => {
+          error.cleanupError = cleanupError;
+          reject(error);
+        },
+      );
     };
     const onListening = () => {
       server.off('error', onError);
@@ -352,9 +484,13 @@ function startServer({ port = PORT, host = process.env.HOST } = {}) {
   });
 }
 
-function stopServer() {
+/**
+ * Stops Vite, proxy clients, and the shared HTTP server.
+ */
+async function stopServer() {
+  await resetClientState();
   for (const client of wss.clients) client.terminate();
-  if (!server.listening) return Promise.resolve();
+  if (!server.listening) return;
 
   return new Promise((resolve, reject) => {
     server.close((error) => {
@@ -365,7 +501,7 @@ function stopServer() {
 }
 
 if (require.main === module) {
-  startServer().then((address) => {
+  startServer({ mode: devMode ? 'dev' : 'built' }).then((address) => {
     const port = address && typeof address === 'object' ? address.port : PORT;
     console.log(`Darkflow listening on port ${port}`);
     console.log(`Proxy endpoint: ws[s]://<host>:${port}/proxy?host=X&port=Y&tls=0|1`);
@@ -375,11 +511,19 @@ if (require.main === module) {
   });
 }
 
+/**
+ * Returns the selected serve mode and optional MCP mount result.
+ */
+function getServeInfo() {
+  return serveInfo;
+}
+
 module.exports = {
   app,
   server,
   startServer,
   stopServer,
+  getServeInfo,
   makeTelnetParser,
   wrapGmcp,
   constants,

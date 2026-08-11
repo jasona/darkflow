@@ -11,6 +11,10 @@ function isSteamDistribution({ argv = process.argv, env = process.env, distribut
   });
 }
 
+function selectDesktopServeMode() {
+  return 'built';
+}
+
 function isAllowedAppUrl(candidate, appOrigin) {
   try {
     return new URL(candidate).origin === new URL(appOrigin).origin;
@@ -31,4 +35,5 @@ module.exports = {
   isAllowedAppUrl,
   isSafeExternalUrl,
   isSteamDistribution,
+  selectDesktopServeMode,
 };

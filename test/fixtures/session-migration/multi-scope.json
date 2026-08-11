@@ -1,0 +1,85 @@
+{
+  "aliases": {
+    "scopes": {
+      "wss://active.example.com:4242": {
+        "aliases": [
+          {
+            "id": "alias-active",
+            "enabled": true,
+            "trigger": "north",
+            "description": "Active alias",
+            "group": "",
+            "isRegex": false,
+            "ignoreCase": true,
+            "steps": [
+              {
+                "type": "send_command",
+                "template": "north"
+              }
+            ]
+          }
+        ],
+        "variables": {}
+      },
+      "ws://other.example.com:5000": {
+        "aliases": [
+          {
+            "id": "alias-other",
+            "enabled": true,
+            "trigger": "south",
+            "description": "Other alias",
+            "group": "",
+            "isRegex": false,
+            "ignoreCase": true,
+            "steps": [
+              {
+                "type": "send_command",
+                "template": "south"
+              }
+            ]
+          }
+        ],
+        "variables": {}
+      }
+    }
+  },
+  "triggers": {
+    "scopes": {}
+  },
+  "highlights": {
+    "scopes": {}
+  },
+  "functions": {
+    "scopes": {}
+  },
+  "timers": {
+    "scopes": {}
+  },
+  "history": [
+    "active-history"
+  ],
+  "panels": {
+    "layout": "floating",
+    "profiles": {}
+  },
+  "sound": {
+    "enabled": true,
+    "volume": 0.8,
+    "categoryEnabled": {
+      "ambient": true,
+      "combat": true,
+      "alert": false
+    }
+  },
+  "settings": {
+    "theme": "darkflow-default"
+  },
+  "config": {
+    "host": "active.example.com",
+    "port": 4242,
+    "wss": true,
+    "gameName": "",
+    "hiddenPanels": []
+  },
+  "urlSearchParams": ""
+}

@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      # pull_request only auto-runs once for workflows not yet on main;
+      # push keeps CI running on feature-branch commits until this lands.
+      - plan/**
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    name: Test and desktop smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.15.0
+          cache: npm
+      - name: Verify Node and npm versions
+        run: |
+          test "$(node --version)" = "v22.15.0"
+          test "$(npm --version)" = "10.9.2"
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - run: npm run verify:client-artifact
+      - run: npm run test:server:built
+      - name: Desktop smoke
+        run: xvfb-run --auto-servernum npm run desktop:smoke
+        env:
+          ELECTRON_DISABLE_SANDBOX: 1
+      - name: Build and validate unpacked desktop package
+        run: npm run desktop:pack
+      - name: Smoke unpacked desktop package
+        run: xvfb-run --auto-servernum npm run desktop:smoke:packaged
+        env:
+          ELECTRON_DISABLE_SANDBOX: 1
+
+  docker:
+    name: Docker smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build --tag darkflow-ci .
+      - name: Inspect runtime files and dependencies
+        run: |
+          docker run --rm darkflow-ci node -e "const fs=require('fs'); for(const p of ['/app/server.js','/app/lib/client-artifact.js','/app/dist/client/index.html']) if(!fs.existsSync(p)) process.exit(1); for(const p of ['/app/public','/app/client','/app/scripts','/app/test','/app/desktop']) if(fs.existsSync(p)) process.exit(1)"
+          docker run --rm darkflow-ci node -e "for(const m of ['express','ws','howler']) require.resolve(m); for(const m of ['vite','electron']) { try { require.resolve(m); process.exit(1) } catch(e) { if(e.code!=='MODULE_NOT_FOUND') throw e } }"
+      - name: Reject missing built artifact
+        run: |
+          if docker run --rm darkflow-ci sh -c 'mv dist/client dist/client-hidden && node server.js'; then
+            echo "built server unexpectedly started without dist/client" >&2
+            exit 1
+          fi
+      - name: Start and probe container
+        shell: bash
+        run: |
+          container="$(docker run --detach --env MCP_ENABLED=0 --publish 127.0.0.1:3000:3000 darkflow-ci)"
+          trap 'docker logs "$container"; docker rm --force "$container"' EXIT
+          for _ in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3000/ping >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:3000/ >/dev/null
+          curl --fail --silent http://127.0.0.1:3000/config.json >/dev/null
+          curl --fail --silent http://127.0.0.1:3000/api/version >/dev/null
+          curl --fail --silent http://127.0.0.1:3000/vendor/howler.core.min.js >/dev/null
+          curl --fail --silent http://127.0.0.1:3000/site.webmanifest >/dev/null
+          curl --fail --silent http://127.0.0.1:3000/css/main.css >/dev/null
+          curl --fail --silent http://127.0.0.1:3000/js/app.js >/dev/null
+          curl --fail --silent http://127.0.0.1:3000/assets/brand/darkflow-icon-32.png >/dev/null
+          curl --fail --silent http://127.0.0.1:3000/assets/sounds/alert-ping.mp3 >/dev/null
+          curl --fail --silent http://127.0.0.1:3000/phase0/ >/dev/null
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:3000/ping)" = "204"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:3000/phase0/main.ts)" = "404"
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:3000/@vite/client)" = "404"
+
+  browser:
+    name: Browser integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.15.0
+          cache: npm
+      - name: Verify Node and npm versions
+        run: |
+          test "$(node --version)" = "v22.15.0"
+          test "$(npm --version)" = "10.9.2"
+      - run: npm ci
+      - id: pw
+        run: |
+          version="$(node -p "require('./package-lock.json').packages['node_modules/@playwright/test'].version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - name: Warm Typia compiler
+        run: npm run typecheck
+      - run: npm run test:browser
+      - run: npm run build
+      - run: npm run test:browser:production
+      - run: npm run test:transports
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+
+  mcp:
+    name: MCP harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.15.0
+          cache: npm
+          cache-dependency-path: mud-test-mcp/package-lock.json
+      - name: Verify Node and npm versions
+        run: |
+          test "$(node --version)" = "v22.15.0"
+          test "$(npm --version)" = "10.9.2"
+      - run: npm run test:mcp

@@ -266,6 +266,15 @@ export function resetForConnection() {
   mapStatusMessage = '';
 }
 
+/** Cancels session-bound learned-map work without persisting stale callbacks. */
+export function disposeMapDataLifecycle() {
+  loadToken++;
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = null;
+  dirtyAreas.clear();
+  active = false;
+}
+
 export function processHello(data, connection = {}) {
   configureWorld({
     name: data && data.name,
@@ -428,7 +437,9 @@ export async function load() {
     // Cache hydration is optional. Room.Info packets can arrive while the
     // asynchronous read is in flight; an IndexedDB/localStorage failure must
     // not erase that newer live map and make the pane disappear mid-session.
-    storageError = e && e.message ? e.message : 'Map cache unavailable';
+    if (token === loadToken) {
+      storageError = e && e.message ? e.message : 'Map cache unavailable';
+    }
   }
 }
 

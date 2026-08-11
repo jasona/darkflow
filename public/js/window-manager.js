@@ -1,4 +1,5 @@
 import { gmcp } from './gmcp.js';
+import { disposeControllerLifecycle, installControllerLifecycle } from './session-compat/controllers.js';
 import { dom, state } from './state.js';
 import { panelManager } from './panel-manager.js';
 import { renderLayout, collectFormData, updateElements } from './window-renderer.js';
@@ -19,11 +20,20 @@ export const windowManager = {
   windows: {},  // id -> { id, type, el, containerEl }
 
   init() {
-    gmcp.on(DW_WINDOW_OPEN, (data) => this.openWindow(data));
-    gmcp.on(DW_WINDOW_UPDATE, (data) => this.updateWindow(data));
-    gmcp.on(DW_WINDOW_CLOSE, (data) => this.closeWindow(data.id));
-    document.addEventListener('dw:avatarZoom', (event) => this._openAvatarZoom(event.detail));
-    document.addEventListener('dw:connectionstate', () => this._syncAuthWindowConnectionState());
+    return installControllerLifecycle(this, 'windows', gmcp, (scopedGmcp, lifecycle) => {
+      scopedGmcp.on(DW_WINDOW_OPEN, (data) => this.openWindow(data));
+      scopedGmcp.on(DW_WINDOW_UPDATE, (data) => this.updateWindow(data));
+      scopedGmcp.on(DW_WINDOW_CLOSE, (data) => this.closeWindow(data.id));
+      lifecycle.listen(document, 'dw:avatarZoom', (event) => this._openAvatarZoom(event.detail));
+      lifecycle.listen(document, 'dw:connectionstate', () => this._syncAuthWindowConnectionState());
+    }, () => {
+      if (this._avatarZoomRelease) this._avatarZoomRelease();
+      for (const id of Object.keys(this.windows)) this.closeWindow(id, true);
+    });
+  },
+
+  dispose() {
+    disposeControllerLifecycle(this);
   },
 
   openWindow(data) {
@@ -579,6 +589,7 @@ export const windowManager = {
   _openAvatarZoom(detail) {
     if (!detail || !detail.src) return;
 
+    if (this._avatarZoomRelease) this._avatarZoomRelease();
     const existing = document.querySelector('.dw-avatar-lightbox-overlay');
     if (existing) existing.remove();
 
@@ -605,9 +616,16 @@ export const windowManager = {
       if (detail.fallback && img.src !== detail.fallback) img.src = detail.fallback;
     });
 
-    const close = () => {
+    const cleanup = () => {
       document.removeEventListener('keydown', keyHandler);
       overlay.remove();
+    };
+    const release = this._controllerLifecycle
+      ? this._controllerLifecycle.own('teardown', cleanup)
+      : cleanup;
+    const close = () => {
+      release();
+      if (this._avatarZoomRelease === close) this._avatarZoomRelease = null;
     };
     const keyHandler = (event) => {
       if (event.key === 'Escape') close();
@@ -623,6 +641,7 @@ export const windowManager = {
     frame.appendChild(img);
     overlay.appendChild(frame);
     document.body.appendChild(overlay);
+    this._avatarZoomRelease = close;
     closeBtn.focus();
   },
 

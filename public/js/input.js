@@ -23,6 +23,7 @@ import { handleEmojiPickerKeydown, initEmojiPicker } from './emoji-picker.js';
 import { handleMentionPickerKeydown, initMentionPicker } from './mention-picker.js';
 import { isSocketOpen } from './socket-state.js';
 import { cancelSpeedwalk, isSpeedwalking } from './map-speedwalk.js';
+import { createControllerLifecycle } from './session-compat/controllers.js';
 
 let commandHistory = [];
 let historyIndex = 0;
@@ -31,6 +32,7 @@ let _saveTimer = null;
 let batchDrawer = null;
 let batchTextarea = null;
 let batchSubmitButton = null;
+let inputLifecycle = null;
 
 const BATCH_COMMAND_DELAY_MS = 75;
 
@@ -134,13 +136,17 @@ function closeBatchDrawer() {
 }
 
 function sendBatchCommands(commands, index = 0) {
+  if (!inputLifecycle || inputLifecycle.disposed) return;
   if (index >= commands.length) {
     return;
   }
 
   sendCommandText(commands[index]);
   if (index + 1 < commands.length) {
-    setTimeout(() => sendBatchCommands(commands, index + 1), BATCH_COMMAND_DELAY_MS);
+    inputLifecycle.setTimeout(
+      () => sendBatchCommands(commands, index + 1),
+      BATCH_COMMAND_DELAY_MS
+    );
   }
 }
 
@@ -767,7 +773,11 @@ export function loadHistory() {
 
 export function saveHistory() {
   if (_saveTimer) return;
-  _saveTimer = setTimeout(() => {
+  if (!inputLifecycle || inputLifecycle.disposed) {
+    saveHistoryNow();
+    return;
+  }
+  _saveTimer = inputLifecycle.setTimeout(() => {
     _saveTimer = null;
     try {
       localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(commandHistory));
@@ -776,116 +786,134 @@ export function saveHistory() {
 }
 
 export function saveHistoryNow() {
-  if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = null; }
+  if (_saveTimer) { _saveTimer(); _saveTimer = null; }
   try {
     localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(commandHistory));
   } catch(e) { /* ignore */ }
 }
 
 export function sendCommand() {
+  if (!inputLifecycle || inputLifecycle.disposed) return false;
   return sendCommandText(dom.commandInput.value);
 }
 
 export function initInput() {
-  initCompletion();
-  initEmojiPicker(dom.commandInput, {
-    isEnabled: () => settingsManager.get('emojiPickerEnabled') !== false,
-  });
-  initMentionPicker(dom.commandInput);
+  if (inputLifecycle) return inputLifecycle.dispose;
+  const lifecycle = createControllerLifecycle('input');
+  inputLifecycle = lifecycle;
 
-  dom.commandInput.addEventListener('keydown', function(e) {
-    if (handleMentionPickerKeydown(e)) {
-      return;
-    } else if (handleEmojiPickerKeydown(e)) {
-      return;
-    } else if (handleMappedKey(e)) {
-      return;
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      sendCommand();
-    } else if (e.key === 'Tab') {
-      e.preventDefault();
-      requestCompletion(commandHistory);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      resetCompletionState();
-      if (commandHistory.length === 0) return;
-      if (historyIndex === commandHistory.length) {
-        currentInput = dom.commandInput.value;
-      }
-      if (historyIndex > 0) {
-        historyIndex--;
-        dom.commandInput.value = commandHistory[historyIndex];
-      }
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      resetCompletionState();
-      if (historyIndex < commandHistory.length) {
-        historyIndex++;
+  try {
+    lifecycle.own('teardown', initCompletion());
+    lifecycle.own('teardown', initEmojiPicker(dom.commandInput, {
+      isEnabled: () => settingsManager.get('emojiPickerEnabled') !== false,
+    }, lifecycle));
+    lifecycle.own('teardown', initMentionPicker(dom.commandInput));
+
+    lifecycle.listen(dom.commandInput, 'keydown', function(e) {
+      if (handleMentionPickerKeydown(e)) {
+        return;
+      } else if (handleEmojiPickerKeydown(e)) {
+        return;
+      } else if (handleMappedKey(e)) {
+        return;
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        sendCommand();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        requestCompletion(commandHistory);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        resetCompletionState();
+        if (commandHistory.length === 0) return;
         if (historyIndex === commandHistory.length) {
-          dom.commandInput.value = currentInput;
-        } else {
+          currentInput = dom.commandInput.value;
+        }
+        if (historyIndex > 0) {
+          historyIndex--;
           dom.commandInput.value = commandHistory[historyIndex];
         }
-      }
-    } else if (e.key !== 'Shift' && e.key !== 'Control' && e.key !== 'Alt' && e.key !== 'Meta') {
-      resetCompletionState();
-    }
-  });
-  dom.commandInput.addEventListener('paste', handleCommandPaste);
-
-  dom.sendBtn.addEventListener('click', sendCommand);
-
-  dom.outputShell.addEventListener('click', function(event) {
-    if (!(event.target instanceof HTMLElement)) return;
-    if (!event.target.closest('.output-pane')) return;
-    if (!window.getSelection().toString()) {
-      dom.commandInput.focus();
-    }
-  });
-
-  // Global keyboard shortcuts
-  document.addEventListener('keydown', function(e) {
-    if (e.defaultPrevented) return;
-    if (isBlockedEditableTarget(e.target)) return;
-
-    if (isSettingsShortcut(e)) {
-      e.preventDefault();
-      settingsManager.open();
-    } else if (e.ctrlKey && e.key === 'l') {
-      e.preventDefault();
-      clearOutput();
-    } else if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) {
-      e.preventDefault();
-      panelManager.resetData({ preservePanels: ['chat', 'roomPlaylist'] });
-      if (gmcp.restartHandshake({ panels: panelManager.getSubscriptionPanels() })) {
-        panelManager.refreshMediaPanels();
-      }
-    } else if (e.key === 'Escape') {
-      if (returnOutputToLive() || exitSplitScrollback()) {
+      } else if (e.key === 'ArrowDown') {
         e.preventDefault();
-        dom.commandInput.focus();
-        return;
+        resetCompletionState();
+        if (historyIndex < commandHistory.length) {
+          historyIndex++;
+          if (historyIndex === commandHistory.length) {
+            dom.commandInput.value = currentInput;
+          } else {
+            dom.commandInput.value = commandHistory[historyIndex];
+          }
+        }
+      } else if (e.key !== 'Shift' && e.key !== 'Control' && e.key !== 'Alt' && e.key !== 'Meta') {
+        resetCompletionState();
       }
+    });
+    lifecycle.listen(dom.commandInput, 'paste', handleCommandPaste);
+
+    lifecycle.listen(dom.sendBtn, 'click', sendCommand);
+
+    lifecycle.listen(dom.outputShell, 'click', function(event) {
+      if (!(event.target instanceof HTMLElement)) return;
+      if (!event.target.closest('.output-pane')) return;
+      if (!window.getSelection().toString()) {
+        dom.commandInput.focus();
+      }
+    });
+
+    // Global keyboard shortcuts
+    lifecycle.listen(document, 'keydown', function(e) {
+      if (e.defaultPrevented) return;
+      if (isBlockedEditableTarget(e.target)) return;
+
+      if (isSettingsShortcut(e)) {
+        e.preventDefault();
+        settingsManager.open();
+      } else if (e.ctrlKey && e.key === 'l') {
+        e.preventDefault();
+        clearOutput();
+      } else if (e.ctrlKey && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        panelManager.resetData({ preservePanels: ['chat', 'roomPlaylist'] });
+        if (gmcp.restartHandshake({ panels: panelManager.getSubscriptionPanels() })) {
+          panelManager.refreshMediaPanels();
+        }
+      } else if (e.key === 'Escape') {
+        if (returnOutputToLive() || exitSplitScrollback()) {
+          e.preventDefault();
+          dom.commandInput.focus();
+          return;
+        }
+        resetCompletionState();
+        dom.commandInput.value = '';
+        dom.commandInput.focus();
+      } else if (e.key === 'PageUp') {
+        e.preventDefault();
+        scrollActiveOutputByPage(-0.8);
+      } else if (e.key === 'PageDown') {
+        e.preventDefault();
+        scrollActiveOutputByPage(0.8);
+      }
+
+      if (handleMappedKey(e)) return;
+
+      // Auto-focus: redirect printable keys to command input
+      if (document.activeElement === dom.commandInput) return;
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      if (e.key.length === 1) {
+        dom.commandInput.focus();
+      }
+    });
+
+    lifecycle.own('teardown', () => {
+      saveHistoryNow();
+      closeBatchDrawer();
       resetCompletionState();
-      dom.commandInput.value = '';
-      dom.commandInput.focus();
-    } else if (e.key === 'PageUp') {
-      e.preventDefault();
-      scrollActiveOutputByPage(-0.8);
-    } else if (e.key === 'PageDown') {
-      e.preventDefault();
-      scrollActiveOutputByPage(0.8);
-    }
-
-    if (handleMappedKey(e)) return;
-
-    // Auto-focus: redirect printable keys to command input
-    if (document.activeElement === dom.commandInput) return;
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
-    if (e.ctrlKey || e.altKey || e.metaKey) return;
-    if (e.key.length === 1) {
-      dom.commandInput.focus();
-    }
-  });
+      inputLifecycle = null;
+    });
+  } catch (error) {
+    lifecycle.dispose();
+    throw error;
+  }
+  return lifecycle.dispose;
 }

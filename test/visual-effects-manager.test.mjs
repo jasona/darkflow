@@ -533,7 +533,7 @@ test('visual overlay is non-interactive, accessible, motion-aware, and has no pr
     'utf8',
   );
   const html = readFileSync(
-    new URL('../public/index.html', import.meta.url),
+    new URL('../client/index.html', import.meta.url),
     'utf8',
   );
   const settingsSource = readFileSync(

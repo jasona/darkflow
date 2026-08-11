@@ -75,10 +75,22 @@ function normalizeWaitSeconds(value) {
   return Math.max(0, Math.min(MAX_WAIT_SECONDS, number));
 }
 
-function waitResult(seconds) {
+function waitResult(seconds, context) {
   const delayMs = Math.round(normalizeWaitSeconds(seconds) * 1000);
   if (delayMs <= 0) {
     return { sent: false, localOnly: true, handled: true };
+  }
+  const scheduleWaitFn = context && typeof context.scheduleWait === 'function'
+    ? context.scheduleWait
+    : null;
+  if (scheduleWaitFn) {
+    return {
+      sent: false,
+      localOnly: true,
+      handled: true,
+      pending: true,
+      completion: scheduleWaitFn(delayMs),
+    };
   }
   return {
     sent: false,
@@ -539,7 +551,7 @@ function executeAutomationStep(step, context) {
   }
 
   if (step.type === 'wait') {
-    return waitResult(resolved.text);
+    return waitResult(resolved.text, context);
   }
 
   if (step.type === 'set_variable') {
@@ -794,7 +806,7 @@ export function executeTriggerMatches(matches, scopeKey, options = {}) {
   const sendCommand = options.sendCommand;
 
   for (const match of matches) {
-    executeAutomationSteps(match.trigger.steps || [], {
+    const executionContext = {
       appendMessage,
       sendCommand,
       scopeKey,
@@ -811,7 +823,11 @@ export function executeTriggerMatches(matches, scopeKey, options = {}) {
         depth: 0,
         trail: [],
       },
-    });
+    };
+    if (typeof options.scheduleWait === 'function') {
+      executionContext.scheduleWait = options.scheduleWait;
+    }
+    executeAutomationSteps(match.trigger.steps || [], executionContext);
   }
 }
 

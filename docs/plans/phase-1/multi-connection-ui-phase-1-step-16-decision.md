@@ -1,0 +1,100 @@
+# Phase 1 Step 16 decision record
+
+## Decision
+
+**Status:** `COMPLETE`
+
+Phase 1 is certified for immutable candidate
+`21b1dc111e50d736318895eb7c45e3e096af4953` as of 2026-08-11
+(America/Detroit). Required CI passed for that SHA; the project owner accepted
+hosted CI as sufficient for this hobby-project gate. Phase 2 implementation is
+unblocked.
+
+## Foundation freeze
+
+| Contract                  | Source declaration                                                                                                                                 | Frozen invariant                                                                                                                                                                                                                                                                                                                   | Phase 2 consumer                          | Allowed evolution                                                                                                  | Replan trigger                                                                                                        |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| Live session              | `client/runtime/session.ts`: `Session`, `SessionRuntimeSnapshot`, `createSession`                                                                  | One session exposes stable session/server/character identities, connect/disconnect/dispose, and read-only effective-configuration, health, and runtime snapshots. Disposal is terminal and idempotent.                                                                                                                             | Svelte workspace session host             | Add a deliberately reviewed public capability when a port cannot use the declared surface.                         | A Phase 2 consumer needs a factory handle or mutable internal state.                                                  |
+| Event routing             | `client/runtime/events.ts`: `SessionEvent`; `client/runtime/event-bus.ts`: `SessionEventBus`, `createSessionEventBus`                              | Events are immutable `{ sessionId, type, payload }` envelopes. A bus rejects a wrong session ID, isolates handler failures, and becomes silent after disposal.                                                                                                                                                                     | Workspace event integration               | Add explicit event types without changing envelope routing rules.                                                  | A consumer requires cross-session routing or broadcast semantics.                                                     |
+| Stable profiles and graph | `client/model/ids.ts`; `client/model/profiles.ts`: `ApplicationStateV1`                                                                            | Branded UUID identities key one versioned graph of server profiles, character profiles, and configuration sets. A character belongs to one server profile.                                                                                                                                                                         | Profile selector and workspace model      | Add a versioned schema migration, not optional fields that weaken V1 validation.                                   | A Phase 2 port cannot consume source declarations directly.                                                           |
+| Repository and migration  | `client/storage/schema.ts`; `client/storage/repository.ts`; `client/storage/legacy-migration.ts`                                                   | `darkflow-session-core-v1` is committed only after whole-graph validation in one `setItem`; provenance is diagnostic-only. Valid V1 state makes migration a no-op; corrupt or partial legacy input is recorded without deleting legacy keys.                                                                                       | Settings/profile persistence port         | Add a new versioned key and migration path.                                                                        | Any request deletes or mutates legacy keys, or needs transactional storage beyond the validated graph.                |
+| Effective configuration   | `client/configuration/snapshot.ts`: `EffectiveConfigurationSnapshot`; `client/configuration/service.ts`                                            | Six configuration kinds resolve as a deeply frozen snapshot with source metadata. Shared-set publish compares expected revision, validates and commits once, then notifies; local replacement notifies only its character.                                                                                                         | Settings and automation ports             | Add a kind through the same snapshot, provenance, and atomic publish contract.                                     | A consumer needs mutable snapshots or partial shared-set visibility.                                                  |
+| Transport                 | `client/transport/types.ts`: `SessionTransport`, endpoint/state/reconnect/health types; `client/transport/connection.ts`: `createSessionTransport` | `ws`, `wss`, `telnet`, and `telnets` preserve endpoint, reconnect, health, text/binary send, and session-scoped disposal semantics.                                                                                                                                                                                                | Connection controls and background policy | Extend through a new explicitly tested transport contract.                                                         | A port needs an unscoped socket or changes the four-protocol ladder.                                                  |
+| GMCP ingress              | `client/gmcp/bus.ts`: `SessionGmcpBus`; `client/gmcp/contracts/validators.ts`                                                                      | Advertised supports, handler isolation, session-scoped dispatch, and typed send helpers remain stable. Modeled inbound packages are normalized and checked once at ingress; invalid modeled payloads reach diagnostics and continue to existing compatibility handlers. Listed unmodeled packages pass through without validation. | Panel, IDE, terminal, and window ports    | A Phase 2 port may enforce validated-only delivery after representative wire fixtures cover its consumer contract. | A package changes consumer, direction, or advisory/validated-only status without an owner and compatibility evidence. |
+| Resource ownership        | `client/runtime/resource-scope.ts`: `ResourceScope`; `client/runtime/diagnostics.ts`: `SessionDiagnosticsSnapshot`, `SessionDiagnostics`           | Scopes own timers, animation frames, subscriptions, observers, listeners, child scopes, sockets, and teardown hooks; disposal is reverse-order, guarded, and idempotent. Diagnostics expose every live-resource and routing/disposal counter.                                                                                      | Workspace lifecycle and controller ports  | Add a resource kind only with diagnostic accounting and disposal coverage.                                         | A long-lived browser resource cannot be owned by a session scope.                                                     |
+
+`SessionFacadeHandles` in `client/runtime/session-factory.ts` is an internal
+composition handle for compatibility wiring. It is not part of the public
+`Session` surface and Phase 2 must not import it as a general runtime API.
+
+## Compatibility-debt ledger
+
+All four facades are transitional public-JS seams installed and reset by
+`client/app/bootstrap-transaction.ts`. Their Phase 4 deletion gate is identical:
+remove the facade only after every listed consumer is on its Phase 2 port and
+the single-session web, Electron, and mobile parity matrix is green.
+
+| Facade                            | Current consumer area and imports                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Migration owner                                                                | Deletion gate                                                                                                                    |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `session-compat/configuration.js` | Configuration managers: `alias-manager.js`, `function-manager.js`, `highlight-manager.js`, `settings-manager.js`, `timer-manager.js`, `trigger-manager.js`; bootstrap; definition and automation tests                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Phase 2 settings and configuration-editor port                                 | Phase 4 legacy-adapter deletion after these managers and their coverage import the Phase 2 configuration service.                |
+| `session-compat/automation.js`    | Automation managers: `alias-manager.js`, `gmcp-variables.js`, `settings-manager.js`, `timer-manager.js`, `trigger-manager.js`; bootstrap; automation-runtime test                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Phase 2 terminal automation port                                               | Phase 4 legacy-adapter deletion after aliases, triggers, timers, and GMCP variables use the session automation runtime directly. |
+| `session-compat/runtime.js`       | Runtime/transport glue: `app.js`, `connection.js`, `gmcp.js`; bootstrap; runtime-bridge test                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Phase 2 workspace session-host and connection-controls port                    | Phase 4 legacy-adapter deletion after bootstrap no longer loads legacy runtime glue.                                             |
+| `session-compat/controllers.js`   | Legacy controllers: `announcements-manager.js`, `app.js`, `broadcast-manager.js`, `combat-visual-manager.js`, `completion.js`, `connection-overlay.js`, `fishing-manager.js`, `giphy-manager.js`, `ide-manager.js`, `input.js`, `lag-monitor.js`, `linux-rescue-manager.js`, `login-theme-manager.js`, `map-speedwalk.js`, `mention-picker.js`, `notification-manager.js`, `output.js`, `panel-manager.js`, `rfc2549-debug.js`, `room-playlist-manager.js`, `snoop-manager.js`, `sound-panel.js`, `street-samurai-dashboard-manager.js`, `tutorial-manager.js`, `visual-effects-manager.js`, `window-manager.js`; bootstrap; controller-lifecycle test | Phase 2 workspace, terminal, panel, window, IDE, notification, and media ports | Phase 4 legacy-adapter deletion after each listed controller owns its GMCP/listener lifecycle in its Phase 2 port.               |
+
+## GMCP debt
+
+The Phase 1 compatibility policy is advisory validation: validation failures do
+not disconnect the session or suppress delivery to existing wildcard and
+package-specific handlers. This supersedes the strict-suppression wording in
+the original Step 7 plan and the original master-plan MH6. Enforced validation
+is deferred until a consuming Phase 2 port has representative wire fixtures and
+an explicit validated-only contract.
+
+The authoritative modeled and unmodeled package inventory, including a named
+Phase 2 owner and a Phase 4 deletion gate for each unmodeled package family, is
+[the Phase 1 GMCP inventory](multi-connection-ui-phase-1-gmcp-inventory.md).
+Outbound-only rows are intentionally distinct from inbound validation work.
+
+## Migration and rollback
+
+- New persisted keys: `darkflow-session-core-v1` for the validated graph and
+  `darkflow-session-migration-v1` for best-effort provenance.
+- Legacy keys remain untouched. Migration is idempotent when valid V1 state is
+  present; malformed scoped records and partial installs are retained as
+  provenance/skipped-key evidence rather than destructive cleanup.
+- Rollback serves the preceding client, which ignores the V1 graph and reads
+  the untouched legacy keys. Never automatically delete
+  `darkflow-session-core-v1`: it may contain later player edits.
+- Evidence owner: `test/session-storage.test.mjs` covers byte-for-byte legacy
+  preservation, idempotency, corrupt input, partial input, and failed commits.
+
+## Evidence ledger
+
+Immutable candidate: `21b1dc111e50d736318895eb7c45e3e096af4953` (2026-08-11,
+America/Detroit). Required hosted CI passed for this SHA. The CI run URL was not
+recorded; completion is based on the project owner's confirmation. Earlier local
+preliminary rows used Node `v22.15.0` and npm `10.9.2` and remain contextual
+evidence rather than candidate attestation.
+
+| Gate                                                                               | Result                   | Evidence                                                                                                                                                                                                             |
+| ---------------------------------------------------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Focused model/storage/configuration predecessor tests                              | Local preliminary `PASS` | 21 tests: `node --test test/session-model.test.mjs test/session-storage.test.mjs test/effective-configuration.test.mjs`                                                                                              |
+| Focused runtime/automation predecessor tests                                       | Local preliminary `PASS` | 36 tests: `node --test test/session-lifecycle-primitives.test.mjs test/session-runtime.test.mjs test/session-automation-runtime.test.mjs`                                                                            |
+| Focused GMCP/controller predecessor tests                                          | Local preliminary `PASS` | 25 tests, including 109 registrations: `node --test test/session-gmcp-bus.test.mjs test/session-gmcp-darkwind.test.mjs test/session-gmcp-controller-lifecycle.test.mjs test/session-gmcp-controller-census.test.mjs` |
+| Focused transport/bootstrap predecessor tests                                      | Local preliminary `PASS` | 32 tests: `node --test test/session-transport.test.mjs test/session-runtime-bridge.test.mjs test/session-bootstrap.test.mjs`                                                                                         |
+| Chromium disposal and single-runtime parity                                        | Local preliminary `PASS` | 4 tests: `npm run test:browser -- e2e/session-disposal.spec.ts e2e/session-single-runtime.spec.ts --project=chromium`                                                                                                |
+| Build and artifact sentinels                                                       | Local preliminary `PASS` | `npm run build`, including `verify:bundle` and `verify:client-artifact`                                                                                                                                              |
+| Production Chromium parity                                                         | Local preliminary `PASS` | 2 tests: `npm run test:browser:production`                                                                                                                                                                           |
+| Clean-install quality, full browser, transports, Electron, Docker, and MCP battery | Candidate CI `PASS`      | Required CI passed for `21b1dc111e50d736318895eb7c45e3e096af4953`; the project owner accepted hosted CI without a duplicate local battery.                                                                           |
+| Hosted CI `baseline`, `docker`, `browser`, and `mcp`                               | `PASS`                   | Project-owner-confirmed green CI for `21b1dc111e50d736318895eb7c45e3e096af4953`; run URL not recorded.                                                                                                               |
+
+Completion date: 2026-08-11 (America/Detroit). The immutable candidate SHA and
+green hosted-CI result are recorded above. No runtime input changed while making
+this documentation-only attestation.
+
+## Go/no-go
+
+`COMPLETE`. Candidate `21b1dc111e50d736318895eb7c45e3e096af4953` passed required
+CI and was accepted on 2026-08-11. The frozen interfaces and assigned debt above
+now unblock Phase 2. This documentation-only attestation does not change the
+candidate.

@@ -132,10 +132,14 @@ test('sets master volume through Howler without modifying source volume', () => 
 
 test('loads the pinned local Howler core before the Darkflow module graph', () => {
   const packageJson = JSON.parse(readFileSync(new URL('package.json', root), 'utf8'));
-  const indexHtml = readFileSync(new URL('public/index.html', root), 'utf8');
+  const indexHtml = readFileSync(new URL('client/index.html', root), 'utf8');
   const soundManager = readFileSync(new URL('public/js/sound-manager.js', root), 'utf8');
 
   assert.equal(packageJson.dependencies.howler, '2.2.4');
-  assert.ok(indexHtml.indexOf('/vendor/howler.core.min.js') < indexHtml.indexOf('js/app.js'));
+  assert.ok(
+    indexHtml.indexOf('/vendor/howler.core.min.js') <
+      indexHtml.indexOf('/app/bootstrap.ts'),
+  );
+  assert.doesNotMatch(indexHtml, /js\/app\.js/);
   assert.doesNotMatch(soundManager, /new\s+Audio\s*\(/);
 });

@@ -2,6 +2,7 @@
 // Lazy-loads the CodeMirror editor on first use and routes GMCP messages.
 
 import { gmcp } from './gmcp.js';
+import { disposeControllerLifecycle, installControllerLifecycle } from './session-compat/controllers.js';
 import { state } from './state.js';
 import { panelManager } from './panel-manager.js';
 
@@ -63,30 +64,51 @@ export const ideManager = {
   openTransfers: new Map(),
 
   init() {
-    panelManager.registerPanelCloseHandler('ide', () => this.handlePaneClose());
-    gmcp.on(DW_IDE_OPEN, (data) => this.handleOpen(data));
-    gmcp.on(DW_IDE_OPEN_START, (data) => this.handleOpenStart(data));
-    gmcp.on(DW_IDE_OPEN_CHUNK, (data) => this.handleOpenChunk(data));
-    gmcp.on(DW_IDE_OPEN_FINISH, (data) => this.handleOpenFinish(data));
-    gmcp.on(DW_IDE_SAVE_RESULT, (data) => this.handleSaveResult(data));
+    return installControllerLifecycle(this, 'ide', gmcp, (scopedGmcp, lifecycle) => {
+      const closeHandler = () => this.handlePaneClose();
+      panelManager.registerPanelCloseHandler('ide', closeHandler);
+      lifecycle.own('teardown', () => panelManager.unregisterPanelCloseHandler('ide', closeHandler));
+      scopedGmcp.on(DW_IDE_OPEN, (data) => this.handleOpen(data));
+      scopedGmcp.on(DW_IDE_OPEN_START, (data) => this.handleOpenStart(data));
+      scopedGmcp.on(DW_IDE_OPEN_CHUNK, (data) => this.handleOpenChunk(data));
+      scopedGmcp.on(DW_IDE_OPEN_FINISH, (data) => this.handleOpenFinish(data));
+      scopedGmcp.on(DW_IDE_SAVE_RESULT, (data) => this.handleSaveResult(data));
+    }, () => {
+      this.openTransfers.clear();
+      if (this.editor) this.editor.close(true);
+      this.editor = null;
+      this.loadPromise = null;
+    });
+  },
+
+  dispose() {
+    disposeControllerLifecycle(this);
   },
 
   async ensureEditor() {
     if (this.editor) return this.editor;
+    const lifecycle = this._controllerLifecycle;
+    if (!lifecycle || lifecycle.disposed) return null;
     this.showLoading();
     try {
       if (!this.loadPromise) {
         this.loadPromise = import('./ide-editor.js');
       }
       const mod = await this.loadPromise;
+      if (lifecycle.disposed || this._controllerLifecycle !== lifecycle) return null;
       this.editor = mod.ideEditor;
       await this.editor.init();
+      if (lifecycle.disposed || this._controllerLifecycle !== lifecycle) {
+        this.editor.close(true);
+        this.editor = null;
+        return null;
+      }
       return this.editor;
     } catch (e) {
       console.error('[IDE] Failed to load editor:', e);
       throw e;
     } finally {
-      this.hideLoading();
+      if (!lifecycle.disposed && this._controllerLifecycle === lifecycle) this.hideLoading();
     }
   },
 
@@ -117,6 +139,7 @@ export const ideManager = {
     } catch (_error) {
       return;
     }
+    if (!editor) return;
 
     const hostEl = this.ensurePane();
     if (!hostEl) return;

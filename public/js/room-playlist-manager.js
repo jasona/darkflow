@@ -6,6 +6,7 @@ import {
   normalizePlaylistState,
   shouldCorrectDrift,
 } from './room-playlist-core.mjs';
+import { disposeControllerLifecycle, installControllerLifecycle } from './session-compat/controllers.js';
 
 const PKG_STATE = 'Darkwind.Room.Playlist.State';
 const PKG_OPEN = 'Darkwind.Room.Playlist.Open';
@@ -78,18 +79,31 @@ export const roomPlaylistManager = {
   statusMessage: '',
 
   init() {
-    if (this.initialized) return;
-    this.initialized = true;
-    gmcp.on(PKG_STATE, (data) => this.receiveState(data));
-    gmcp.on(PKG_OPEN, (data) => this.receiveOpen(data));
-    gmcp.on('Room.Info', (data) => this.handleRoomInfo(data));
-    document.addEventListener('dw:connectionstate', (event) => {
-      if (!event.detail || event.detail.state !== 'connected') this.stopPlayback();
+    return installControllerLifecycle(this, 'room-playlist', gmcp, (scopedGmcp, lifecycle) => {
+      this.initialized = true;
+      scopedGmcp.on(PKG_STATE, (data) => this.receiveState(data));
+      scopedGmcp.on(PKG_OPEN, (data) => this.receiveOpen(data));
+      scopedGmcp.on('Room.Info', (data) => this.handleRoomInfo(data));
+      lifecycle.listen(document, 'dw:connectionstate', (event) => {
+        if (!event.detail || event.detail.state !== 'connected') this.stopPlayback();
+      });
+      const closeHandler = () => {
+        this.leave({ persist: true });
+        return true;
+      };
+      panelManager.registerPanelCloseHandler('roomPlaylist', closeHandler);
+      lifecycle.own('teardown', () => {
+        panelManager.unregisterPanelCloseHandler('roomPlaylist', closeHandler);
+      });
+    }, () => {
+      this.stopPlayback();
+      this.playerGeneration += 1;
+      this.initialized = false;
     });
-    panelManager.registerPanelCloseHandler('roomPlaylist', () => {
-      this.leave({ persist: true });
-      return true;
-    });
+  },
+
+  dispose() {
+    disposeControllerLifecycle(this);
   },
 
   saveSettings() {
