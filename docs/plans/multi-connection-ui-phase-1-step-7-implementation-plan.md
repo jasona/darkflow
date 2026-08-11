@@ -158,6 +158,14 @@ composition), exactly as Step 6 deferred its own wiring.
   `gmcp-room.md`, and `gmcp-comm.md` validates successfully through its
   looked-up validator; a canonical name absent from Step 2's contracts
   resolves to no validator and is never blocked.
+
+> Compatibility amendment (Step 16): preserving existing MUD behavior takes
+> precedence over strict suppression until representative wire fixtures exist.
+> The implemented Phase 1 bus diagnoses malformed modeled frames and continues
+> delivery to existing wildcard and package-specific handlers. The original MH3
+> below is retained as historical planning context and is superseded by the Step
+> 16 decision record.
+
 - [MH3] A malformed known-field frame reaches neither its package-specific
   handler nor the wildcard handler, is recorded through the session's
   diagnostics, and does not disconnect the session or block delivery of the

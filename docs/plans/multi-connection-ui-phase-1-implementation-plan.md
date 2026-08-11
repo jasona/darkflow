@@ -51,8 +51,8 @@ the legacy workspace; it freezes the interfaces that Phases 2 and 3 will use.
   must become character-profile-owned without deleting their rollback source.
 - `gmcp.dispatch` normalizes data and invokes handlers without runtime shape
   validation (`public/js/gmcp.js:71-109`). Handler failures are isolated today;
-  Phase 1 must preserve that resilience while rejecting malformed modeled
-  payloads before typed consumers see them.
+  Phase 1 must preserve that resilience and existing delivery behavior while
+  diagnosing malformed modeled payloads at ingress.
 - Direct `ws`/`wss` and bridged `telnet`/`telnets` URL behavior is already
   established in the legacy transport (`public/js/connection.js:615-633`) and
   covered by production fixtures. Phase 1 changes ownership, not those external
@@ -94,10 +94,12 @@ the legacy workspace; it freezes the interfaces that Phases 2 and 3 will use.
   persistence succeeds before publication, every attached live session observes
   one complete revision, stale revisions are rejected, and no session observes
   a partially updated collection.
-- [MH6] GMCP is session-scoped and validated once at ingress for the Phase 1
+- [MH6] GMCP is session-scoped and checked once at ingress for the Phase 1
   protocol catalog. Acceptance: unknown extra keys remain allowed, malformed
-  known fields reach diagnostics but no typed handler, one throwing handler does
-  not starve later handlers, and the session remains connected.
+  known fields reach diagnostics and continue to existing compatibility
+  handlers, one throwing handler does not starve later handlers, and the
+  session remains connected. Validated-only delivery is deferred until a typed
+  consumer has representative wire fixtures.
 - [MH7] Transport and reconnect state are session-owned without changing the
   four shipped transport contracts. Acceptance: direct and proxy URL tests,
   fallback order, watchdog/reconnect behavior, handshake retry, and cancellation
