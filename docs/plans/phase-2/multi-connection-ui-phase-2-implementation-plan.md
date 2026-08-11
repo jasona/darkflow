@@ -191,6 +191,11 @@ preceding gate.
 Detailed implementation plan:
 [`multi-connection-ui-phase-2-step-1-implementation-plan.md`](multi-connection-ui-phase-2-step-1-implementation-plan.md).
 
+**Status:** `COMPLETE` — the frozen [parity matrix and cutover
+contract](multi-connection-ui-phase-2-step-1-parity-matrix.md) records the
+Phase 1 candidate baseline, current owners, explicit evidence gaps, and
+per-row rollback. Phase 2 remains `OPEN`.
+
 **Depends on:** Phase 1 Step 16 is `COMPLETE` for one immutable candidate.
 
 **Outcome:** Record the current one-session behavior across shell, connection,
