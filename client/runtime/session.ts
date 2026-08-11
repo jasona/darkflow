@@ -4,12 +4,17 @@ import type { CoreHello } from "../gmcp/contracts/core.ts";
 import type { SessionGmcpBus } from "../gmcp/bus.ts";
 import type { CharacterProfileId, ServerProfileId, SessionId } from "../model/ids.ts";
 import type { SessionDescriptor, SessionRegistry } from "../model/session-contract.ts";
-import type { TransportHealthSnapshot } from "../transport/types.ts";
-import type { SessionTransport } from "../transport/types.ts";
+import type {
+  SessionTransport,
+  TransportEndpoint,
+  TransportHealthSnapshot,
+  TransportReconnectStatusPayload,
+  TransportState,
+} from "../transport/types.ts";
 import { LOST_TRANSMISSION_RECOVERY_DELAY_MS } from "../transport/reconnect.ts";
-import type { TransportReconnectStatusPayload } from "../transport/types.ts";
 import type { SessionDiagnostics } from "./diagnostics.ts";
 import type { SessionEventBus } from "./event-bus.ts";
+import type { Unsubscribe } from "./events.ts";
 import type { ResourceScope } from "./resource-scope.ts";
 import type { SessionRuntimeState } from "./runtime-state.ts";
 
@@ -17,6 +22,13 @@ import type { SessionRuntimeState } from "./runtime-state.ts";
 export interface SessionRuntimeSnapshot {
   isLoggedIntoCharacter: boolean;
   effectiveConfiguration: EffectiveConfigurationSnapshot;
+}
+
+/** Read-only connection state needed by a shell without exposing transport internals. */
+export interface SessionConnectionSnapshot {
+  endpoint: TransportEndpoint;
+  state: TransportState;
+  reconnect: TransportReconnectStatusPayload | null;
 }
 
 /** Composed live session owning transport, GMCP, configuration, and runtime state. */
@@ -31,6 +43,11 @@ export interface Session {
   getEffectiveConfiguration(): EffectiveConfigurationSnapshot;
   getHealthSnapshot(): TransportHealthSnapshot;
   getRuntimeSnapshot(): SessionRuntimeSnapshot;
+  getConnectionSnapshot(): SessionConnectionSnapshot;
+  setConnectionEndpoint(endpoint: TransportEndpoint): void;
+  retryConnection(): void;
+  subscribeConnection(listener: (snapshot: SessionConnectionSnapshot) => void): Unsubscribe;
+  onDispose(listener: () => void): Unsubscribe;
 }
 
 /** Already-constructed parts wired together by createSession. */
@@ -45,6 +62,8 @@ export interface SessionParts {
   runtimeState: SessionRuntimeState;
   getClientInfo: () => CoreHello;
   unsubscribeConfiguration: ConfigurationUnsubscribe;
+  getConnectionEndpoint: () => TransportEndpoint;
+  setConnectionEndpoint: (endpoint: TransportEndpoint) => void;
 }
 
 /** Wires transport and GMCP event subscriptions into one session lifecycle. */
@@ -59,9 +78,25 @@ export function createSession(parts: SessionParts): Session {
     runtimeState,
     getClientInfo,
     unsubscribeConfiguration,
+    getConnectionEndpoint,
+    setConnectionEndpoint,
   } = parts;
 
   let disposed = false;
+  let reconnect: TransportReconnectStatusPayload | null = null;
+
+  function getConnectionSnapshot(): SessionConnectionSnapshot {
+    return {
+      endpoint: { ...getConnectionEndpoint() },
+      state:
+        reconnect?.status === "connecting"
+          ? "connecting"
+          : reconnect?.status === "connected"
+            ? "connected"
+            : "disconnected",
+      reconnect: reconnect ? { ...reconnect } : null,
+    };
+  }
 
   const vitalsHandler = () => {
     runtimeState.markCharacterVitalsReceived();
@@ -85,6 +120,7 @@ export function createSession(parts: SessionParts): Session {
     "subscription",
     eventBus.subscribe("transport:reconnect-status", (event) => {
       const payload = event.payload as TransportReconnectStatusPayload;
+      reconnect = { ...payload };
       if (payload.status !== "connected") {
         return;
       }
@@ -161,6 +197,28 @@ export function createSession(parts: SessionParts): Session {
         isLoggedIntoCharacter: runtimeState.isLoggedIntoCharacter(),
         effectiveConfiguration: runtimeState.getEffectiveConfiguration(),
       };
+    },
+
+    getConnectionSnapshot,
+
+    setConnectionEndpoint,
+
+    retryConnection() {
+      transport.retryNow();
+    },
+
+    subscribeConnection(listener) {
+      listener(getConnectionSnapshot());
+      return scope.own(
+        "subscription",
+        eventBus.subscribe("transport:reconnect-status", () => {
+          listener(getConnectionSnapshot());
+        }),
+      );
+    },
+
+    onDispose(listener) {
+      return scope.own("listener", listener);
     },
   };
 }

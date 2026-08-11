@@ -45,6 +45,9 @@ Success is one production Svelte/Dockview frontend whose single-session web,
 Electron, and mobile parity matrix passes. Phase 2 does not expose multiple live
 sessions or delete legacy rollback sources and compatibility adapters.
 
+This is a hobby project and not software for a nuclear power plant, although
+there are users in production.
+
 ## Evidence and hard constraints
 
 - Phase 2 owns the Svelte shell, approved workspace adapter, `panel-manager`

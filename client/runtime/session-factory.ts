@@ -131,6 +131,11 @@ export function createSessionFromState(
     protocol: serverProfile.protocol,
   };
   const connectionEndpoint: TransportEndpoint = { ...baselineEndpoint };
+  const setConnectionEndpoint = (endpoint: TransportEndpoint): void => {
+    connectionEndpoint.host = endpoint.host;
+    connectionEndpoint.port = endpoint.port;
+    connectionEndpoint.protocol = endpoint.protocol;
+  };
 
   const transport = createSessionTransport(
     sessionId,
@@ -175,6 +180,8 @@ export function createSessionFromState(
     runtimeState,
     getClientInfo: deps.getClientInfo,
     unsubscribeConfiguration,
+    getConnectionEndpoint: () => ({ ...connectionEndpoint }),
+    setConnectionEndpoint,
   });
 
   return {
@@ -189,11 +196,7 @@ export function createSessionFromState(
       getLifecycleDiagnostics() {
         return diagnostics.snapshot();
       },
-      setConnectionEndpoint(endpoint: TransportEndpoint) {
-        connectionEndpoint.host = endpoint.host;
-        connectionEndpoint.port = endpoint.port;
-        connectionEndpoint.protocol = endpoint.protocol;
-      },
+      setConnectionEndpoint,
       getBaselineEndpoint() {
         return { ...baselineEndpoint };
       },

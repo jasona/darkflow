@@ -451,6 +451,72 @@ test("two characters on one server run concurrently", async (t) => {
   assert.notEqual(harnessA.session.sessionId, harnessB.session.sessionId);
 });
 
+test("public connection snapshots own endpoint, lifecycle, subscriptions, and disposal", async (t) => {
+  const modules = await loadSessionRuntimeModules(t);
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 0 });
+  FakeWebSocket.reset();
+
+  const graph = buildMinimalGraph(modules);
+  const harnessA = createSessionHarness(modules, t, graph, graph.characterAId);
+  const harnessB = createSessionHarness(modules, t, graph, graph.characterBId);
+  const snapshotsA = [];
+  const snapshotsB = [];
+  let disposeCalls = 0;
+  const unsubscribeA = harnessA.session.subscribeConnection((snapshot) => snapshotsA.push(snapshot));
+  harnessB.session.subscribeConnection((snapshot) => snapshotsB.push(snapshot));
+  harnessA.session.onDispose(() => {
+    disposeCalls += 1;
+  });
+
+  const initial = harnessA.session.getConnectionSnapshot();
+  assert.deepEqual(initial, {
+    endpoint: { host: "127.0.0.1", port: "4242", protocol: "wss" },
+    state: "disconnected",
+    reconnect: null,
+  });
+  initial.endpoint.host = "mutated";
+  assert.equal(harnessA.session.getConnectionSnapshot().endpoint.host, "127.0.0.1");
+
+  harnessA.session.setConnectionEndpoint({ host: "mud.example", port: "8443", protocol: "ws" });
+  harnessA.session.connect();
+  assert.equal(harnessA.latestSocket()?.url, "ws://mud.example:8443/");
+  assert.equal(graph.state.serverProfiles[graph.serverId].host, "127.0.0.1");
+  assert.equal(snapshotsA.at(-1)?.state, "connecting");
+  assert.equal(snapshotsB.length, 1);
+
+  harnessA.latestSocket()?.open();
+  assert.equal(snapshotsA.at(-1)?.state, "connected");
+  harnessA.latestSocket()?.close(1006, "lost");
+  assert.equal(snapshotsA.at(-1)?.reconnect?.status, "scheduled");
+  assert.equal(snapshotsA.at(-1)?.state, "disconnected");
+
+  harnessA.session.disconnect();
+  assert.equal(snapshotsA.at(-1)?.reconnect?.userDisconnected, true);
+  harnessA.session.retryConnection();
+  assert.equal(snapshotsA.at(-1)?.state, "connecting");
+  assert.deepEqual(
+    snapshotsA.map((snapshot) => [snapshot.state, snapshot.reconnect?.status ?? null]),
+    [
+      ["disconnected", null],
+      ["connecting", "connecting"],
+      ["connected", "connected"],
+      ["disconnected", "scheduled"],
+      ["disconnected", "idle"],
+      ["connecting", "connecting"],
+    ],
+  );
+
+  unsubscribeA();
+  const beforeUnsubscribe = snapshotsA.length;
+  harnessA.session.disconnect();
+  assert.equal(snapshotsA.length, beforeUnsubscribe);
+  harnessA.session.dispose();
+  harnessA.session.dispose();
+  assert.equal(disposeCalls, 1);
+  harnessA.session.retryConnection();
+  assert.equal(snapshotsA.length, beforeUnsubscribe);
+});
+
 test("connect sends handshake packages with login then reconnect reason", async (t) => {
   const modules = await loadSessionRuntimeModules(t);
   t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 0 });
