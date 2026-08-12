@@ -38,9 +38,16 @@ test("vite build config keeps the Phase 0 artifact contract", async () => {
     "phase0",
     "index.html",
   );
+  const expectedPhase2Entry = path.join(
+    repoRoot,
+    "client",
+    "phase2",
+    "index.html",
+  );
   assert.equal(typeof input, "object");
   assert.equal(input.root, expectedRootEntry);
   assert.equal(input.phase0, expectedPhase0Entry);
+  assert.equal(input.phase2, expectedPhase2Entry);
 
   const plugins = config.plugins;
   const ttscIndex = plugins.findIndex(

@@ -37,7 +37,9 @@ async function bootstrap(): Promise<void> {
         return configResponse.ok ? await configResponse.json() : {};
       },
       importModule: importPublicModule,
-      loadLegacyApp,
+      loadClient: async () => {
+        await loadLegacyApp();
+      },
       setBootstrapPhase: (phase) => publishBootstrapPhase(window, phase),
       readRuntimeSlot: () => readPhase1RuntimeSlot(window),
       writeRuntimeSlot: (record) => writePhase1RuntimeSlot(window, record),
@@ -51,6 +53,7 @@ async function bootstrap(): Promise<void> {
       webSocketFactory: (url) => new WebSocket(url),
       onlineTarget: globalThis.window,
       appOrigin: globalThis.location?.origin ?? "http://localhost:3000",
+      launchUrl: globalThis.location?.href ?? "",
       onText: () => {},
     });
   } catch (error) {

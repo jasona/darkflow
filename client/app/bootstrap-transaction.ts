@@ -23,7 +23,7 @@ import type { TransportState } from "../transport/types.ts";
 
 /** Temporary Phase 1 bootstrap diagnostic exposed until later cutover steps finish. */
 export interface BootstrapDiagnostic {
-  phase: "bootstrapping" | "legacy-loaded";
+  phase: "bootstrapping" | "legacy-loaded" | "client-loaded";
 }
 
 /** Extended diagnostic published when a live session is installed at boot. */
@@ -39,7 +39,16 @@ export interface Phase1RuntimeRecord {
   session: Session;
   characterProfileId: CharacterProfileId;
   serverProfileId: ServerProfileId;
-  legacyAppLoaded: boolean;
+  shell: ShellBootstrap;
+  clientLoaded: boolean;
+}
+
+/** Values a shell needs at its public session boundary. */
+export interface ShellBootstrap {
+  gameName: string;
+  themeKey: string;
+  shouldAutoConnect: boolean;
+  zorkOnly: boolean;
 }
 
 /** Installed bridge handles retained for transactional reset on partial boot failure. */
@@ -80,7 +89,7 @@ export interface BootTransactionDeps {
   uuidFactory: () => string;
   fetchConfig: () => Promise<unknown>;
   importModule: <T = Record<string, unknown>>(entry: string) => Promise<T>;
-  loadLegacyApp: () => Promise<void>;
+  loadClient: (record: Phase1RuntimeRecord) => Promise<void>;
   setBootstrapPhase: (phase: BootstrapDiagnostic["phase"]) => void;
   readRuntimeSlot: () => Phase1RuntimeRecord | null;
   writeRuntimeSlot: (record: Phase1RuntimeRecord) => void;
@@ -90,6 +99,7 @@ export interface BootTransactionDeps {
   webSocketFactory: (url: string) => WebSocket;
   onlineTarget: { addEventListener(type: string, listener: () => void): void };
   appOrigin: string;
+  launchUrl: string;
   onText: (text: string) => void;
   /** When set, invoked after session creation to simulate partial boot failure. */
   injectPostCreateFailure?: () => void;
@@ -174,15 +184,34 @@ export function createDeferredTextOutputSink() {
   };
 }
 
+function isTruthyUrlValue(value: string | null): boolean {
+  if (value === null) {
+    return false;
+  }
+  return ["", "1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+function isZorkOnlyLaunch(params: URLSearchParams, launchUrl: string): boolean {
+  const mode = (params.get("mode") || params.get("game") || "").trim().toLowerCase();
+  return (
+    mode === "zork" ||
+    isTruthyUrlValue(params.get("zork")) ||
+    isTruthyUrlValue(params.get("zorkOnly")) ||
+    isTruthyUrlValue(params.get("zorkOnlyMode")) ||
+    isTruthyUrlValue(params.get("ZorkOnlyMode")) ||
+    launchUrl.toLowerCase().includes("zork")
+  );
+}
+
 /** Runs the idempotent Phase 1 boot transaction for tests and browser bootstrap. */
 export async function runBootTransaction(
   deps: BootTransactionDeps,
 ): Promise<BootTransactionResult> {
   const existing = deps.readRuntimeSlot();
   if (existing) {
-    if (!existing.legacyAppLoaded) {
-      await deps.loadLegacyApp();
-      existing.legacyAppLoaded = true;
+    if (!existing.clientLoaded) {
+      await deps.loadClient(existing);
+      existing.clientLoaded = true;
       deps.writeRuntimeSlot(existing);
     }
     return { kind: "reused", record: existing };
@@ -237,6 +266,7 @@ export async function runBootTransaction(
       );
     }
     const serverProfileId = characterProfile.serverProfileId;
+    const zorkOnly = isZorkOnlyLaunch(deps.urlSearchParams, deps.launchUrl);
 
     const [{ state, dom }, connectionModule, gmcpVariables] = await Promise.all([
       deps.importModule<{
@@ -339,7 +369,13 @@ export async function runBootTransaction(
       session: createdSession,
       characterProfileId,
       serverProfileId,
-      legacyAppLoaded: false,
+      shell: {
+        gameName: config.gameName,
+        themeKey: applicationState.defaults.themeKey,
+        shouldAutoConnect: zorkOnly || Boolean(deps.urlSearchParams.get("host") || config.host),
+        zorkOnly,
+      },
+      clientLoaded: false,
     };
     deps.writeRuntimeSlot(record);
     deps.publishSessionDiagnostic({
@@ -349,8 +385,8 @@ export async function runBootTransaction(
       serverProfileId,
     });
 
-    await deps.loadLegacyApp();
-    record.legacyAppLoaded = true;
+    await deps.loadClient(record);
+    record.clientLoaded = true;
     deps.writeRuntimeSlot(record);
 
     return { kind: "created", record };

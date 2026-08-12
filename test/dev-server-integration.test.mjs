@@ -146,6 +146,10 @@ test(
       assert.equal(phaseWithoutSlashResponse.status, 200);
       assert.match(await phaseWithoutSlashResponse.text(), /src="\/phase0\/main\.ts"/);
 
+      const phase2Response = await fetch(`${origin}/phase2/`);
+      assert.equal(phase2Response.status, 200);
+      assert.match(await phase2Response.text(), /src="\/app\/phase2\.ts"/);
+
       const clientResponse = await fetch(`${origin}/@vite/client`);
       assert.equal(clientResponse.status, 200);
       assert.match(
@@ -153,7 +157,7 @@ test(
         /javascript/,
       );
 
-      for (const endpoint of ["/phase0/", "/@vite/client"]) {
+      for (const endpoint of ["/phase0/", "/phase2/", "/@vite/client"]) {
         const response = await fetch(`${origin}${endpoint}`, {
           headers: { Host: `localhost:${address.port}` },
         });
@@ -177,7 +181,7 @@ test(
 
       process.env.DARKFLOW_DESKTOP = "1";
       process.env.DARKFLOW_DESKTOP_TOKEN = "dev-server-test-token";
-      for (const endpoint of ["/", "/index.html", "/phase0/", "/@vite/client"]) {
+      for (const endpoint of ["/", "/index.html", "/phase0/", "/phase2/", "/@vite/client"]) {
         const denied = await fetch(`${origin}${endpoint}`);
         assert.equal(denied.status, 403);
         const allowed = await fetch(`${origin}${endpoint}`, {

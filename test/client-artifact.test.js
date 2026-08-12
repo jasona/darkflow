@@ -96,6 +96,24 @@ test("accepts a complete client artifact without its public source", async (t) =
   assert.deepEqual(metadata, { version: fixture.version });
 });
 
+test("accepts a root handoff in a preloaded bundle", async (t) => {
+  const fixture = await createFixture(t);
+  const sharedBundle = "assets/shared-AbCd1234.js";
+  await Promise.all([
+    fs.writeFile(
+      path.join(fixture.artifactDir, "index.html"),
+      `<script type="module" src="/${ROOT_BUNDLE}"></script><link rel="modulepreload" href="/${sharedBundle}">\n`,
+    ),
+    fs.writeFile(path.join(fixture.artifactDir, fixture.rootBundle), "export {};\n"),
+    fs.writeFile(path.join(fixture.artifactDir, sharedBundle), `${ROOT_BUNDLE_CONTENTS}\n`),
+  ]);
+
+  await validateClientArtifact({
+    artifactDir: fixture.artifactDir,
+    expectedVersion: fixture.version,
+  });
+});
+
 test("accepts complete client source parity", async (t) => {
   const fixture = await createFixture(t);
   await validateClientSourceParity({

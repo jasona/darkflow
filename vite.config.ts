@@ -15,6 +15,7 @@ export default defineConfig({
       input: {
         root: fileURLToPath(new URL("./client/index.html", import.meta.url)),
         phase0: fileURLToPath(new URL("./client/phase0/index.html", import.meta.url)),
+        phase2: fileURLToPath(new URL("./client/phase2/index.html", import.meta.url)),
       },
     },
   },

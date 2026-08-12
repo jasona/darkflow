@@ -118,7 +118,7 @@ function createBootHarness(modules, options = {}) {
     __darkflowPhase1Session: undefined,
   };
   const texts = [];
-  let legacyLoadCount = 0;
+  let clientLoadCount = 0;
   let bootstrapPhase = null;
   let sessionDiagnostic = null;
   const connectionStateCalls = [];
@@ -200,8 +200,9 @@ function createBootHarness(modules, options = {}) {
       uuidFactory: options.uuidFactory ?? modules.createSequentialUuidFactory("10000000-0000-4000-8000-"),
       fetchConfig: overrides.fetchConfig ?? (async () => options.config ?? modules.DEFAULT_CONFIG_JSON),
       importModule,
-      loadLegacyApp: async () => {
-        legacyLoadCount += 1;
+      loadClient: async (record) => {
+        clientLoadCount += 1;
+        await overrides.loadClient?.(record);
         bootstrapPhase = "legacy-loaded";
       },
       setBootstrapPhase: (phase) => {
@@ -229,6 +230,7 @@ function createBootHarness(modules, options = {}) {
       }),
       onlineTarget: { addEventListener() {} },
       appOrigin: "http://localhost:3000",
+      launchUrl: options.launchUrl ?? "http://localhost:3000/",
       onText: (text) => texts.push(text),
       injectPostCreateFailure: overrides.injectPostCreateFailure,
     });
@@ -241,8 +243,8 @@ function createBootHarness(modules, options = {}) {
     legacyState,
     connectionStateCalls,
     installed,
-    get legacyLoadCount() {
-      return legacyLoadCount;
+    get clientLoadCount() {
+      return clientLoadCount;
     },
     get bootstrapPhase() {
       return bootstrapPhase;
@@ -254,7 +256,7 @@ function createBootHarness(modules, options = {}) {
   };
 }
 
-test("MH1 CMH2 same-slot double bootstrap creates one session and one legacy load", async (t) => {
+test("MH1 CMH2 same-slot double bootstrap creates one session and one client load", async (t) => {
   const modules = await loadBootstrapModules(t);
   const fixture = loadFixture("single-scope");
   const storage = createMemoryStorage();
@@ -267,7 +269,7 @@ test("MH1 CMH2 same-slot double bootstrap creates one session and one legacy loa
   assert.equal(first.kind, "created");
   assert.equal(second.kind, "reused");
   assert.equal(first.record.session.sessionId, second.record.session.sessionId);
-  assert.equal(harness.legacyLoadCount, 1);
+  assert.equal(harness.clientLoadCount, 1);
   assert.equal(harness.sessionDiagnostic?.phase, "session-ready");
   assert.equal(harness.bootstrapPhase, "legacy-loaded");
 });
@@ -364,7 +366,7 @@ test("CMH1 bridge install performs no DOM connection state write before markLega
   assert.ok(harness.connectionStateCalls.length >= 1);
 });
 
-test("CMH3 partial boot failure loads legacy once after cleanup", async (t) => {
+test("CMH3 partial boot failure loads one client after cleanup", async (t) => {
   const modules = await loadBootstrapModules(t);
   const fixture = loadFixture("single-scope");
   const storage = createMemoryStorage();
@@ -379,10 +381,51 @@ test("CMH3 partial boot failure loads legacy once after cleanup", async (t) => {
     }),
   );
 
-  assert.equal(harness.legacyLoadCount, 0);
+  assert.equal(harness.clientLoadCount, 0);
 
   await harness.runTransaction({
     fetchConfig: async () => modules.DEFAULT_CONFIG_JSON,
   });
-  assert.equal(harness.legacyLoadCount, 1);
+  assert.equal(harness.clientLoadCount, 1);
+});
+
+test("Green PR 2 client mount failure clears the session runtime", async (t) => {
+  const modules = await loadBootstrapModules(t);
+  const fixture = loadFixture("single-scope");
+  const storage = createMemoryStorage();
+  populateLegacyStorage(storage, modules, fixture);
+  const harness = createBootHarness(modules, { storage });
+
+  await assert.rejects(
+    () =>
+      harness.runTransaction({
+        loadClient() {
+          throw new Error("Phase 2 mount failed");
+        },
+      }),
+    /Phase 2 mount failed/,
+  );
+
+  assert.equal(modules.readPhase1RuntimeSlot(harness.windowTarget), null);
+  assert.equal(harness.sessionDiagnostic, null);
+  assert.equal(harness.clientLoadCount, 1);
+});
+
+test("Green PR 2 returns shell bootstrap values without runtime handles", async (t) => {
+  const modules = await loadBootstrapModules(t);
+  const fixture = loadFixture("single-scope");
+  const storage = createMemoryStorage();
+  populateLegacyStorage(storage, modules, fixture);
+  const harness = createBootHarness(modules, {
+    storage,
+    config: { ...modules.DEFAULT_CONFIG_JSON, gameName: "Example", host: "mud.example.com" },
+  });
+
+  const result = await harness.runTransaction();
+  assert.deepEqual(result.record.shell, {
+    gameName: "Example",
+    themeKey: "dracula",
+    shouldAutoConnect: true,
+    zorkOnly: false,
+  });
 });

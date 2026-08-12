@@ -413,7 +413,11 @@ async function initializeApp(mode) {
     });
     app.get(['/phase0/', '/phase0/index.html'], (req, res, next) => {
       if (!selectedDevPhaseRoute) return next();
-      return selectedDevPhaseRoute(req, res, next);
+      return selectedDevPhaseRoute('phase0', req, res, next);
+    });
+    app.get(['/phase2/', '/phase2/index.html'], (req, res, next) => {
+      if (!selectedDevPhaseRoute) return next();
+      return selectedDevPhaseRoute('phase2', req, res, next);
     });
     app.get(['/', '/index.html'], (req, res, next) => {
       if (!selectedDevRootRoute) return next();
@@ -429,7 +433,7 @@ async function initializeApp(mode) {
     });
     devClient = client;
     selectedDevMiddleware = client.middleware;
-    selectedDevPhaseRoute = client.servePhase0;
+    selectedDevPhaseRoute = client.servePhase;
     selectedDevRootRoute = client.serveRoot;
   }
   serveInfo.mode = mode;
