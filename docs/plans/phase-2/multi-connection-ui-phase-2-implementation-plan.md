@@ -236,6 +236,13 @@ root-level legacy lifecycle owner.
 
 ### Step 3 — Promote the workspace, persisted layout, and mobile sheet
 
+Detailed implementation plan:
+[`multi-connection-ui-phase-2-step-3-implementation-plan.md`](multi-connection-ui-phase-2-step-3-implementation-plan.md).
+
+**Status:** `PLANNED` — implementation has not started; the detailed plan keeps
+the legacy root and layout bytes as rollback inputs and requires real-session
+desktop, built-web, and mobile evidence before completion.
+
 **Depends on:** Step 2.
 
 **Outcome:** Promote the proven Dockview adapter into the real session lifecycle;

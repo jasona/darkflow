@@ -1,5 +1,6 @@
 export interface LifecycleDiagnosticsSnapshot {
   mounts: number;
+  layouts: number;
   updates: number;
   unmounts: number;
   duplicateDisposals: number;
@@ -31,6 +32,7 @@ const diagnosticsByHost = new WeakMap<HTMLElement, LifecycleDiagnostics>();
  */
 export class LifecycleDiagnostics {
   #mounts = 0;
+  #layouts = 0;
   #updates = 0;
   #unmounts = 0;
   #duplicateDisposals = 0;
@@ -60,6 +62,10 @@ export class LifecycleDiagnostics {
     this.#mounts += 1;
     this.#mountCounts.set(panelId, (this.#mountCounts.get(panelId) ?? 0) + 1);
     this.#roots.set(panelId, { host, panelId });
+  }
+
+  recordLayout(): void {
+    this.#layouts += 1;
   }
 
   updateRoot(): void {
@@ -128,6 +134,7 @@ export class LifecycleDiagnostics {
   snapshot(): LifecycleDiagnosticsSnapshot {
     return {
       mounts: this.#mounts,
+      layouts: this.#layouts,
       updates: this.#updates,
       unmounts: this.#unmounts,
       duplicateDisposals: this.#duplicateDisposals,

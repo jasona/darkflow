@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { Readable } from "svelte/store";
-  import { findLifecycleDiagnostics } from "./lifecycle-diagnostics";
-  import type { PanelState } from "./workspace";
+  import { findLifecycleDiagnostics } from "../../workspace/lifecycle-diagnostics";
+  import type { PanelState } from "../../workspace/workspace";
 
   let { panelId, state: panelState }: { panelId: string; state: Readable<PanelState> } = $props();
   let element: HTMLElement;

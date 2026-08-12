@@ -172,6 +172,77 @@ test("updates a panel in place and leaves unaffected panels mounted", async ({ p
   expect(beforeSecond.rootIdentity).not.toBe(beforeFirst.rootIdentity);
 });
 
+test("emits user layout changes, relayouts on host resize, and keeps terminal focus on activation", async ({
+  page,
+}) => {
+  const terminal = terminalPanel("subscription-terminal");
+  const lifecycle = lifecyclePanel("subscription-lifecycle", "listener", {
+    kind: "grid",
+    direction: "right",
+    referencePanelId: terminal.id,
+  });
+  await page.evaluate(
+    (specs) => {
+      for (const spec of specs) window.__darkflowWorkspace.upsert(spec);
+      window.__darkflowWorkspace.focusTerminal(specs[0].id);
+    },
+    [terminal, lifecycle] as const,
+  );
+  const initialTerminal = await observeTerminal(page, terminal.id);
+
+  await page.evaluate(() => window.__darkflowWorkspace.subscribeLayout());
+  await page.evaluate(
+    (panel) =>
+      window.__darkflowWorkspace.move(panel.id, {
+        kind: "grid",
+        direction: "below",
+        referencePanelId: "subscription-terminal",
+      }),
+    lifecycle,
+  );
+  await expect
+    .poll(() => page.evaluate(() => window.__darkflowWorkspace.layoutEvents()))
+    .toBeGreaterThan(0);
+
+  const snapshot = await page.evaluate(() => window.__darkflowWorkspace.save());
+  await page.evaluate(() => window.__darkflowWorkspace.resetLayoutEvents());
+  expect(
+    await page.evaluate(({ saved, specs }) => window.__darkflowWorkspace.restore(saved, specs), {
+      saved: snapshot,
+      specs: [terminal, lifecycle],
+    }),
+  ).toBe(true);
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+  expect(await page.evaluate(() => window.__darkflowWorkspace.layoutEvents())).toBe(0);
+
+  const beforeResize = await page.evaluate(() => window.__darkflowWorkspace.diagnostics().layouts);
+  await page.getByTestId("workspace-host").evaluate((host) => {
+    host.style.width = "640px";
+  });
+  await expect
+    .poll(() => page.evaluate(() => window.__darkflowWorkspace.diagnostics().layouts))
+    .toBeGreaterThan(beforeResize);
+
+  await page.evaluate(() => {
+    window.__darkflowWorkspace.unsubscribeLayout();
+    window.__darkflowWorkspace.resetLayoutEvents();
+    window.__darkflowWorkspace.focusTerminal("subscription-terminal");
+    window.__darkflowWorkspace.activate("subscription-lifecycle");
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.__darkflowWorkspace.panel("subscription-lifecycle")?.active),
+    )
+    .toBe(true);
+  await expectTerminalState(page, terminal.id, initialTerminal);
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+  expect(await page.evaluate(() => window.__darkflowWorkspace.layoutEvents())).toBe(0);
+});
+
 test("preserves terminal state through docking, floating, resize, save, and restore", async ({
   page,
 }) => {

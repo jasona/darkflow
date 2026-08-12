@@ -1,5 +1,5 @@
-export type { WorkspacePanelInspection as PanelObservation } from "../client/phase0/workspace/dockview-workspace";
-export type { TerminalIslandObservation as TerminalObservation } from "../client/phase0/workspace/terminal-island";
+export type { WorkspacePanelInspection as PanelObservation } from "../client/workspace/dockview-workspace";
+export type { TerminalIslandObservation as TerminalObservation } from "../client/workspace/terminal-island";
 export type {
   WorkspaceDiagnostics,
   WorkspaceTestBridge,
@@ -9,7 +9,7 @@ export type {
   PanelState,
   WorkspacePanelSpec as PanelSpec,
   WorkspaceSnapshot,
-} from "../client/phase0/workspace/workspace";
+} from "../client/workspace/workspace";
 
 export interface Bounds {
   left: number;

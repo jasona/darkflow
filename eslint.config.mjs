@@ -12,13 +12,18 @@ const scriptFiles = [
   "client/runtime/**/*.ts",
   "client/transport/**/*.ts",
   "client/gmcp/**/*.ts",
+  "client/workspace/**/*.{js,ts}",
   "client/phase0/**/*.{js,ts}",
   "e2e/**/*.ts",
   "*.config.mjs",
   "playwright.config.ts",
   "vite.config.ts",
 ];
-const svelteFiles = ["client/app/**/*.svelte", "client/phase0/**/*.svelte"];
+const svelteFiles = [
+  "client/app/**/*.svelte",
+  "client/workspace/**/*.svelte",
+  "client/phase0/**/*.svelte",
+];
 const scopedSvelteConfigs = svelte.configs.recommended.map((config) => ({
   ...config,
   files: svelteFiles,

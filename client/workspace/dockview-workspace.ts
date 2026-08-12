@@ -17,6 +17,7 @@ import type {
   WorkspacePanelSpec,
   WorkspaceRendererDefinition,
   WorkspaceRendererRegistry,
+  WorkspaceSnapshot,
 } from "./workspace";
 
 interface PanelRecord {
@@ -171,8 +172,10 @@ export function createWorkspace(
   const records = new Map<string, PanelRecord>();
   const renderers = new Map<string, SvelteDockviewRenderer>();
   const pendingUnmounts = new Set<Promise<void>>();
+  const layoutSubscribers = new Set<(snapshot: WorkspaceSnapshot) => void>();
   let disposed = false;
   let disposePromise: Promise<void> | undefined;
+  let suppressLayoutEvents = true;
 
   const api = createDockview(host, {
     createTabComponent: ({ id }) => new WorkspaceTabRenderer(id),
@@ -200,6 +203,7 @@ export function createWorkspace(
     },
     dndStrategy: "pointer",
     floatingGroupDragHandle: "titlebar",
+    keyboardNavigation: true,
   });
 
   const annotateFloatingTitlebars = () => {
@@ -215,8 +219,40 @@ export function createWorkspace(
       }
     }
   };
+  const emitLayout = () => {
+    annotateFloatingTitlebars();
+    if (disposed || suppressLayoutEvents) {
+      return;
+    }
+
+    const snapshot: WorkspaceSnapshot = { layout: api.toJSON(), version: 1 };
+    for (const listener of layoutSubscribers) {
+      listener(snapshot);
+    }
+  };
   const releaseLayoutListener = diagnostics.trackResource("listener");
-  const layoutListener = api.onDidLayoutChange(annotateFloatingTitlebars);
+  const layoutListener = api.onDidLayoutChange(emitLayout);
+  const layoutHost = () => {
+    diagnostics.recordLayout();
+    api.layout(host.clientWidth, host.clientHeight, true);
+  };
+  const releaseResizeObserver = diagnostics.trackResource("observer");
+  const resizeObserver = new ResizeObserver(() => {
+    if (!disposed) {
+      layoutHost();
+    }
+  });
+  resizeObserver.observe(host);
+  requestAnimationFrame(() => {
+    suppressLayoutEvents = false;
+  });
+
+  const suppressLayoutEventsForFrame = () => {
+    suppressLayoutEvents = true;
+    requestAnimationFrame(() => {
+      suppressLayoutEvents = false;
+    });
+  };
 
   const assertUsable = () => {
     if (disposed) {
@@ -442,13 +478,21 @@ export function createWorkspace(
           });
         }
         if (spec.size || spec.placement) {
-          api.layout(host.clientWidth, host.clientHeight, true);
+          layoutHost();
         }
         return;
       }
 
       records.set(spec.id, makeRecord(spec));
       addPanel(spec);
+    },
+
+    activatePanel(id) {
+      assertUsable();
+      const panel = api.getPanel(id);
+      if (panel) {
+        preserveOwnedFocus(() => panel.api.setActive());
+      }
     },
 
     async removePanel(id) {
@@ -475,6 +519,7 @@ export function createWorkspace(
     restore(snapshot, panels) {
       assertUsable();
       if (snapshot.version !== 1 || !isObject(snapshot.layout)) {
+        suppressLayoutEventsForFrame();
         api.clear();
         for (const renderer of renderers.values()) {
           trackUnmount(renderer);
@@ -483,6 +528,7 @@ export function createWorkspace(
       }
 
       try {
+        suppressLayoutEventsForFrame();
         for (const spec of panels) {
           const record = records.get(spec.id);
           if (record) {
@@ -493,11 +539,12 @@ export function createWorkspace(
         }
         preserveOwnedFocus(() => {
           api.fromJSON(snapshot.layout as never, { reuseExistingPanels: true });
-          api.layout(host.clientWidth, host.clientHeight, true);
+          layoutHost();
         });
         queueMicrotask(annotateFloatingTitlebars);
         return true;
       } catch {
+        suppressLayoutEventsForFrame();
         api.clear();
         for (const renderer of renderers.values()) {
           trackUnmount(renderer);
@@ -506,15 +553,24 @@ export function createWorkspace(
       }
     },
 
+    subscribeLayout(listener) {
+      assertUsable();
+      layoutSubscribers.add(listener);
+      return () => layoutSubscribers.delete(listener);
+    },
+
     dispose() {
       if (disposePromise) {
         return disposePromise;
       }
 
       disposed = true;
+      layoutSubscribers.clear();
       api.dispose();
       layoutListener.dispose();
       releaseLayoutListener();
+      resizeObserver.disconnect();
+      releaseResizeObserver();
       for (const renderer of renderers.values()) {
         trackUnmount(renderer);
       }

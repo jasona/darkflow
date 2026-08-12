@@ -3,17 +3,17 @@ import App from "./App.svelte";
 import { hmrProbe } from "./hmr-probe";
 import { runTypiaProof } from "./typia-proof";
 import LifecyclePanel from "./workspace/LifecyclePanel.svelte";
-import TerminalPanel from "./workspace/TerminalPanel.svelte";
-import { createWorkspace } from "./workspace/dockview-workspace";
-import { LifecycleDiagnostics } from "./workspace/lifecycle-diagnostics";
+import TerminalPanel from "../workspace/TerminalPanel.svelte";
+import { createWorkspace } from "../workspace/dockview-workspace";
+import { LifecycleDiagnostics } from "../workspace/lifecycle-diagnostics";
 import {
   appendTerminalIsland,
   focusTerminalIsland,
   inspectTerminalIsland,
   scrollTerminalIsland,
-} from "./workspace/terminal-island";
+} from "../workspace/terminal-island";
 import type { WorkspaceTestBridge } from "./workspace/workspace-test-bridge";
-import type { PanelPlacement, WorkspacePanelSpec, WorkspaceSnapshot } from "./workspace/workspace";
+import type { PanelPlacement, WorkspacePanelSpec, WorkspaceSnapshot } from "../workspace/workspace";
 
 const target = document.getElementById("app");
 if (!target) {
@@ -44,6 +44,8 @@ const disposedWorkspaceMessage = "Workspace has been disposed.";
 let disposed = false;
 let lastSnapshot: WorkspaceSnapshot | undefined;
 let fixtureSequence = 0;
+let layoutEvents = 0;
+let unsubscribeLayout: (() => void) | undefined;
 
 function assertBridgeUsable(): void {
   if (disposed) {
@@ -99,6 +101,9 @@ const bridge: WorkspaceTestBridge = {
   resize(id, size) {
     updatePanelLayout(id, { size });
   },
+  activate(id) {
+    workspace.activatePanel(id);
+  },
   save() {
     assertBridgeUsable();
     return workspace.save();
@@ -114,6 +119,23 @@ const bridge: WorkspaceTestBridge = {
     }
     return restored;
   },
+  subscribeLayout() {
+    unsubscribeLayout?.();
+    layoutEvents = 0;
+    unsubscribeLayout = workspace.subscribeLayout(() => {
+      layoutEvents += 1;
+    });
+  },
+  unsubscribeLayout() {
+    unsubscribeLayout?.();
+    unsubscribeLayout = undefined;
+  },
+  resetLayoutEvents() {
+    layoutEvents = 0;
+  },
+  layoutEvents() {
+    return layoutEvents;
+  },
   appendTerminal: appendTerminalIsland,
   focusTerminal: focusTerminalIsland,
   scrollTerminal: scrollTerminalIsland,
@@ -123,6 +145,7 @@ const bridge: WorkspaceTestBridge = {
     const snapshot = diagnostics.snapshot();
     return {
       mounts: snapshot.mounts,
+      layouts: snapshot.layouts,
       updates: snapshot.updates,
       unmounts: snapshot.unmounts,
       duplicateDisposals: snapshot.duplicateDisposals,
@@ -140,6 +163,8 @@ const bridge: WorkspaceTestBridge = {
       disposed = true;
       workspaceStatusElement.textContent = "Workspace disposed";
     }
+    unsubscribeLayout?.();
+    unsubscribeLayout = undefined;
     return workspace.dispose();
   },
 };
