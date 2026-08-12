@@ -3,6 +3,7 @@
   import type { ShellBootstrap } from "./bootstrap-transaction.ts";
   import type { Session, SessionConnectionSnapshot } from "../runtime/session.ts";
   import type { TransportEndpoint, TransportName } from "../transport/types.ts";
+  import WorkspaceHost from "../workspace/WorkspaceHost.svelte";
   // @ts-expect-error Legacy UI module has no declaration file.
   import { gameTitle } from "../../public/js/brand.js";
   // @ts-expect-error Legacy UI module has no declaration file.
@@ -251,8 +252,8 @@
     {/if}
   </form>
 
-  <p role="status" aria-live="polite">{connectionStatus}</p>
-  <div data-testid="phase2-content-host"></div>
+  <p data-testid="connection-status" role="status" aria-live="polite">{connectionStatus}</p>
+  <WorkspaceHost characterProfileId={session.characterProfileId} />
 </main>
 
 {#if updateDisplay}

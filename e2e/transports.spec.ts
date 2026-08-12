@@ -141,7 +141,7 @@ for (const transport of transports) {
     await expect
       .poll(() => readPhase2HealthSnapshot(page))
       .toMatchObject({ readyStateName: "open", url: expectedUrl });
-    await expect(page.locator('[role="status"]')).toHaveText(`Connected via ${transport}`);
+    await expect(page.getByTestId("connection-status")).toHaveText(`Connected via ${transport}`);
     await expect.poll(() => endpoint.activeSocketCount()).toBe(1);
 
     const snapshot = await readPhase2HealthSnapshot(page);

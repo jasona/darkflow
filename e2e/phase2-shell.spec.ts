@@ -14,7 +14,7 @@ test("Phase 2 uses one Svelte shell without loading the legacy client", async ({
   const shell = page.getByTestId("phase2-shell");
   await expect(shell).toHaveCount(1);
   await expect(shell).toContainText("Phase 2 integration shell");
-  await expect(page.getByTestId("phase2-content-host")).toHaveCount(1);
+  await expect(page.getByTestId("phase2-workspace")).toHaveCount(1);
   expect(await shell.getAttribute("data-session-id")).toBeTruthy();
   expect(requests).not.toContain("/js/app.js");
   await expect.poll(() => requests.filter((path) => path === "/api/version").length).toBe(1);
@@ -81,7 +81,7 @@ test("Phase 2 chrome applies the migrated theme and disposes desktop updates", a
   await expect(page.getByRole("main")).toHaveCount(1);
   const connectionForm = page.getByRole("form", { name: "Connection" });
   await expect(connectionForm).toBeVisible();
-  await expect(page.locator('[role="status"]')).toHaveAttribute("aria-live", "polite");
+  await expect(page.getByTestId("connection-status")).toHaveAttribute("aria-live", "polite");
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#282a36");
   await expect(page.locator('meta[name="color-scheme"]')).toHaveAttribute("content", "dark");
   await expect(page.getByTestId("update-banner")).toContainText("Checking for Darkwind updates...");
@@ -175,12 +175,12 @@ test("Phase 2 controls drive connection, reconnect overlay, focus, and disposal"
   await page.getByLabel("Host").fill("fixture.example");
   await page.getByLabel("Port").fill("4321");
   await page.getByRole("button", { name: "Connect", exact: true }).click();
-  await expect(page.locator('[role="status"]')).toHaveText("Connecting via ws");
+  await expect(page.getByTestId("connection-status")).toHaveText("Connecting via ws");
   expect(await readFakeSockets(page)).toMatchObject({ urls: ["ws://fixture.example:4321/"] });
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
 
   await controlFakeSocket(page, "open");
-  await expect(page.locator('[role="status"]')).toHaveText("Connected via ws");
+  await expect(page.getByTestId("connection-status")).toHaveText("Connected via ws");
   await expect(page.getByRole("button", { name: "Disconnect" })).toBeVisible();
 
   await shell.focus();
@@ -203,7 +203,7 @@ test("Phase 2 controls drive connection, reconnect overlay, focus, and disposal"
   await page.getByRole("button", { name: "Stop trying" }).click();
   await expect(dialog).toHaveCount(0);
   await expect(shell).toBeFocused();
-  await expect(page.locator('[role="status"]')).toHaveText("Disconnected");
+  await expect(page.getByTestId("connection-status")).toHaveText("Disconnected");
 
   await page.getByLabel("Host").fill("");
   await page.getByLabel("Port").fill("");
