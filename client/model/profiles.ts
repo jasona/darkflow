@@ -38,7 +38,7 @@ export interface CharacterAudioControls {
   notification: AudioCategoryControls;
 }
 
-/** Opaque versioned workspace layout payload for Step 4 panel migration. */
+/** Opaque versioned workspace layout payload for Phase 2 workspace migration. */
 export interface WorkspaceSnapshot {
   version: number & tags.Minimum<1>;
   payload: Record<string, JsonValue>;

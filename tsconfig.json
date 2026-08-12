@@ -23,6 +23,8 @@
     "client/runtime/**/*.ts",
     "client/transport/**/*.ts",
     "client/gmcp/**/*.ts",
+    "client/workspace/**/*.ts",
+    "client/workspace/**/*.svelte",
     "client/phase0/**/*.ts",
     "client/phase0/**/*.d.ts",
     "client/phase0/**/*.svelte"
