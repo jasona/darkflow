@@ -124,6 +124,49 @@ for (const transport of transports) {
     await page.close();
     await expect.poll(() => endpoint.activeSocketCount()).toBe(0);
   });
+
+  test(`${transport} Phase 2 controls use one session transport without fallback`, async ({
+    page,
+  }) => {
+    const endpoint = fixtures.endpoints[transport];
+    const websocketUrls: string[] = [];
+    const runtimeErrors: string[] = [];
+
+    page.on("websocket", (socket) => websocketUrls.push(socket.url()));
+    page.on("pageerror", (error) => runtimeErrors.push(error.message));
+    await page.goto("/phase2/");
+    await connectThroughPublicControls(page, endpoint);
+
+    const expectedUrl = transportUrl(endpoint);
+    await expect
+      .poll(() => readPhase2HealthSnapshot(page))
+      .toMatchObject({ readyStateName: "open", url: expectedUrl });
+    await expect(page.locator('[role="status"]')).toHaveText(`Connected via ${transport}`);
+    await expect.poll(() => endpoint.activeSocketCount()).toBe(1);
+
+    const snapshot = await readPhase2HealthSnapshot(page);
+    const attempts = snapshot.events.filter((event) => event.type === "connect-attempt");
+    const opens = snapshot.events.filter((event) => event.type === "open");
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]).toMatchObject({
+      detail: { transport, url: expectedUrl },
+      type: "connect-attempt",
+    });
+    expect(opens).toHaveLength(1);
+    expect(opens[0]).toMatchObject({
+      detail: { transport, url: expectedUrl },
+      type: "open",
+    });
+    expect(snapshot.events.filter((event) => event.type === "send-generic")).toHaveLength(3);
+    expect(snapshot.lastInboundGmcpAt).not.toBeNull();
+    expect(snapshot.lastHandlerErrorAt).toBeNull();
+    expect(websocketUrls).toEqual([expectedUrl]);
+    expect(websocketUrls.some((url) => url.includes("darkwind.ai"))).toBe(false);
+    expect(runtimeErrors).toEqual([]);
+
+    await page.close();
+    await expect.poll(() => endpoint.activeSocketCount()).toBe(0);
+  });
 }
 
 async function connectThroughPublicControls(
@@ -147,4 +190,14 @@ function transportUrl(endpoint: TransportEndpoint): string {
 
 async function readWsSnapshot(page: Page): Promise<WsDebugSnapshot> {
   return page.evaluate(() => (window as unknown as WsDebugWindow).wsDebug.snapshot());
+}
+
+async function readPhase2HealthSnapshot(page: Page): Promise<WsDebugSnapshot> {
+  return page.evaluate(() =>
+    (
+      window as unknown as {
+        __darkflowPhase1Runtime: { session: { getHealthSnapshot(): WsDebugSnapshot } };
+      }
+    ).__darkflowPhase1Runtime.session.getHealthSnapshot(),
+  );
 }
