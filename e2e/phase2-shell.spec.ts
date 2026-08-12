@@ -17,6 +17,7 @@ test("Phase 2 uses one Svelte shell without loading the legacy client", async ({
   await expect(page.getByTestId("phase2-content-host")).toHaveCount(1);
   expect(await shell.getAttribute("data-session-id")).toBeTruthy();
   expect(requests).not.toContain("/js/app.js");
+  await expect.poll(() => requests.filter((path) => path === "/api/version").length).toBe(1);
   await expect
     .poll(() =>
       page.evaluate(() => ({
@@ -36,6 +37,123 @@ test("Phase 2 uses one Svelte shell without loading the legacy client", async ({
 
   await page.goto("/");
   await expect(page.locator("#toolbar")).toBeVisible();
+});
+
+test("Phase 2 chrome applies the migrated theme and disposes desktop updates", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => {
+    localStorage.setItem("darkwind-client-settings", JSON.stringify({ theme: "dracula" }));
+    const listeners = new Set<(status: unknown) => void>();
+    const diagnostics = { checks: 0, installs: 0 };
+    const desktop = {
+      checkForUpdates: () => {
+        diagnostics.checks += 1;
+      },
+      getInfo: () => Promise.resolve({ updateStatus: { state: "checking" } }),
+      installUpdate: () => {
+        diagnostics.installs += 1;
+      },
+      onUpdateStatus: (listener: (status: unknown) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    Object.defineProperty(window, "darkflowDesktop", { configurable: true, value: desktop });
+    (
+      window as unknown as {
+        __phase2DesktopControl: {
+          diagnostics: typeof diagnostics;
+          emit(status: unknown): void;
+          listenerCount(): number;
+        };
+      }
+    ).__phase2DesktopControl = {
+      diagnostics,
+      emit: (status) => listeners.forEach((listener) => listener(status)),
+      listenerCount: () => listeners.size,
+    };
+  });
+
+  await page.goto("/phase2/");
+
+  await expect(page).toHaveTitle("Darkflow");
+  await expect(page.getByRole("main")).toHaveCount(1);
+  const connectionForm = page.getByRole("form", { name: "Connection" });
+  await expect(connectionForm).toBeVisible();
+  await expect(page.locator('[role="status"]')).toHaveAttribute("aria-live", "polite");
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#282a36");
+  await expect(page.locator('meta[name="color-scheme"]')).toHaveAttribute("content", "dark");
+  await expect(page.getByTestId("update-banner")).toContainText("Checking for Darkwind updates...");
+  expect((await connectionForm.boundingBox())?.width).toBeLessThanOrEqual(390);
+  await page.evaluate(() =>
+    (
+      window as unknown as { __phase2DesktopControl: { emit(status: unknown): void } }
+    ).__phase2DesktopControl.emit({ state: "available", version: "2.0.0" }),
+  );
+  await expect(page.getByTestId("update-banner")).toContainText("Darkwind 2.0.0 is downloading...");
+  await page.evaluate(() =>
+    (
+      window as unknown as { __phase2DesktopControl: { emit(status: unknown): void } }
+    ).__phase2DesktopControl.emit({ state: "downloading", percent: 42 }),
+  );
+  await expect(page.getByTestId("update-banner")).toContainText("Downloading Darkwind update: 42%");
+  await page.evaluate(() =>
+    (
+      window as unknown as { __phase2DesktopControl: { emit(status: unknown): void } }
+    ).__phase2DesktopControl.emit({ state: "downloaded", version: "2.0.0" }),
+  );
+  await page.getByRole("button", { name: "Restart and update" }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { __phase2DesktopControl: { diagnostics: { installs: number } } })
+            .__phase2DesktopControl.diagnostics.installs,
+      ),
+    )
+    .toBe(1);
+  await page.evaluate(() =>
+    (
+      window as unknown as { __phase2DesktopControl: { emit(status: unknown): void } }
+    ).__phase2DesktopControl.emit({ state: "manual", version: "2.0.0" }),
+  );
+  await page.getByRole("button", { name: "Download installer" }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { __phase2DesktopControl: { diagnostics: { installs: number } } })
+            .__phase2DesktopControl.diagnostics.installs,
+      ),
+    )
+    .toBe(2);
+  await page.evaluate(() =>
+    (
+      window as unknown as { __phase2DesktopControl: { emit(status: unknown): void } }
+    ).__phase2DesktopControl.emit({ state: "error" }),
+  );
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { __phase2DesktopControl: { diagnostics: { checks: number } } })
+            .__phase2DesktopControl.diagnostics.checks,
+      ),
+    )
+    .toBe(1);
+
+  await disposePhase2Session(page);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (
+          window as unknown as { __phase2DesktopControl: { listenerCount(): number } }
+        ).__phase2DesktopControl.listenerCount(),
+      ),
+    )
+    .toBe(0);
 });
 
 test("Phase 2 controls drive connection, reconnect overlay, focus, and disposal", async ({
@@ -141,7 +259,9 @@ test("Phase 2 endpoint precedence auto-connects config, URL, and Zork targets", 
   await expect(page.getByText("Darkwind connection")).toBeVisible();
   await expect
     .poll(async () => (await readFakeSockets(page)).urls)
-    .toEqual(["ws://127.0.0.1:3123/proxy?host=darkwind.ai&port=4244&tls=0"]);
+    .toEqual([
+      `${new URL(page.url()).origin.replace("http", "ws")}/proxy?host=darkwind.ai&port=4244&tls=0`,
+    ]);
 });
 
 async function installFakeWebSocket(page: Page): Promise<void> {

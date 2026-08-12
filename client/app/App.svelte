@@ -3,6 +3,26 @@
   import type { ShellBootstrap } from "./bootstrap-transaction.ts";
   import type { Session, SessionConnectionSnapshot } from "../runtime/session.ts";
   import type { TransportEndpoint, TransportName } from "../transport/types.ts";
+  // @ts-expect-error Legacy UI module has no declaration file.
+  import { gameTitle } from "../../public/js/brand.js";
+  // @ts-expect-error Legacy UI module has no declaration file.
+  import { formatUpdateMessage } from "../../public/js/desktop-integration.js";
+  // @ts-expect-error Legacy UI module has no declaration file.
+  import { applyTheme, BUILTIN_THEMES, DEFAULT_THEME_KEY } from "../../public/js/theme-manager.js";
+
+  type UpdateStatus = {
+    state: string;
+    version?: string;
+    percent?: number;
+    message?: string;
+  };
+
+  type DesktopApi = {
+    getInfo(): Promise<{ updateStatus?: UpdateStatus }>;
+    checkForUpdates(): Promise<unknown> | unknown;
+    installUpdate(): Promise<unknown> | unknown;
+    onUpdateStatus(callback: (status: UpdateStatus) => void): () => void;
+  };
 
   let {
     endpoint,
@@ -18,6 +38,8 @@
   let now = $state(Date.now());
   let shellRoot = $state<HTMLElement>();
   let retryButton = $state<HTMLButtonElement>();
+  let updateStatus = $state<UpdateStatus | null>(null);
+  let clientVersion = $state<string | null>(null);
 
   const reconnectVisible = $derived(
     everConnected &&
@@ -36,6 +58,11 @@
     if (snapshot.state === "connected") return `Connected via ${transport}`;
     if (snapshot.reconnect?.status === "scheduled") return "Disconnected. Retry scheduled.";
     return "Disconnected";
+  });
+
+  $effect(() => {
+    applyTheme(BUILTIN_THEMES[shell.themeKey] ?? BUILTIN_THEMES[DEFAULT_THEME_KEY]);
+    document.title = gameTitle(shell.gameName);
   });
 
   $effect(() => {
@@ -67,6 +94,51 @@
             : shellRoot;
         restoreTarget?.focus();
       });
+    };
+  });
+
+  $effect(() => {
+    const desktop = (window as typeof window & { darkflowDesktop?: DesktopApi }).darkflowDesktop;
+    if (desktop) {
+      let disposed = false;
+      const render = (status: UpdateStatus) => {
+        if (!disposed) updateStatus = status;
+      };
+      const unsubscribe = desktop.onUpdateStatus(render);
+      void desktop
+        .getInfo()
+        .then((info) => info.updateStatus && render(info.updateStatus))
+        .catch(() => {});
+      return () => {
+        disposed = true;
+        unsubscribe();
+      };
+    }
+
+    let disposed = false;
+    const fetchVersion = async () => {
+      try {
+        const response = await fetch("/api/version", { cache: "no-store" });
+        const data = (await response.json()) as { version?: string };
+        if (!disposed && data.version) {
+          if (clientVersion && clientVersion !== data.version)
+            updateStatus = { state: "browser-update" };
+          clientVersion = data.version;
+        }
+      } catch {
+        // Version checks are advisory in browser mode.
+      }
+    };
+    void fetchVersion();
+    const timer = setInterval(
+      () => {
+        if (document.visibilityState === "visible") void fetchVersion();
+      },
+      5 * 60 * 1000,
+    );
+    return () => {
+      disposed = true;
+      clearInterval(timer);
     };
   });
 
@@ -102,6 +174,24 @@
     if (snapshot.reconnect?.transport) parts.push(`via ${snapshot.reconnect.transport}`);
     return parts.join("; ");
   }
+
+  const updateDisplay = $derived(
+    updateStatus?.state === "browser-update"
+      ? { message: "A new client version is available.", action: "Refresh to update" }
+      : updateStatus
+        ? formatUpdateMessage(updateStatus)
+        : null,
+  );
+
+  function runUpdateAction(): void {
+    const desktop = (window as typeof window & { darkflowDesktop?: DesktopApi }).darkflowDesktop;
+    const operation = desktop
+      ? ["downloaded", "manual"].includes(updateStatus?.state ?? "")
+        ? desktop.installUpdate()
+        : desktop.checkForUpdates()
+      : location.reload();
+    Promise.resolve(operation).catch(() => {});
+  }
 </script>
 
 <main
@@ -110,8 +200,13 @@
   data-session-id={session.sessionId}
   tabindex="-1"
 >
-  <h1>{shell.gameName ? `Darkflow - ${shell.gameName}` : "Darkflow"}</h1>
-  <p>Phase 2 integration shell</p>
+  <header class="app-chrome">
+    <img src="/assets/brand/darkflow-icon-64.png" alt="" aria-hidden="true" />
+    <div>
+      <h1>{gameTitle(shell.gameName)}</h1>
+      <p>Phase 2 integration shell</p>
+    </div>
+  </header>
 
   <form class="connection-form" aria-label="Connection" onsubmit={connect}>
     {#if !shell.zorkOnly}
@@ -160,6 +255,15 @@
   <div data-testid="phase2-content-host"></div>
 </main>
 
+{#if updateDisplay}
+  <aside class="update-banner" data-testid="update-banner" aria-live="polite">
+    <span>{updateDisplay.message}</span>
+    {#if updateDisplay.action}
+      <button type="button" onclick={runUpdateAction}>{updateDisplay.action}</button>
+    {/if}
+  </aside>
+{/if}
+
 {#if reconnectVisible}
   <div class="reconnect-overlay">
     <div
@@ -192,7 +296,30 @@
   main {
     box-sizing: border-box;
     min-height: 100vh;
-    padding: 1rem;
+    padding: clamp(1rem, 4vw, 3rem);
+    background: var(--df-bg, #0d1117);
+    color: var(--df-text, #c9d1d9);
+  }
+
+  .app-chrome {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    margin-bottom: 1.5rem;
+  }
+
+  .app-chrome img {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  h1,
+  p {
+    margin: 0;
+  }
+
+  .app-chrome p {
+    color: var(--df-muted, #8b949e);
   }
 
   .connection-form,
@@ -206,6 +333,32 @@
   label {
     display: grid;
     gap: 0.25rem;
+  }
+
+  input,
+  select,
+  button {
+    min-height: 2.5rem;
+  }
+
+  :is(input, select, button):focus-visible {
+    outline: 2px solid var(--df-accent-blue, #58a6ff);
+    outline-offset: 2px;
+  }
+
+  .update-banner {
+    position: fixed;
+    top: 0.75rem;
+    right: 0.75rem;
+    z-index: 1001;
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    max-width: calc(100vw - 1.5rem);
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--df-warn, #d9931f);
+    border-radius: 0.5rem;
+    background: var(--df-panel, #161b22);
   }
 
   .reconnect-overlay {
@@ -225,5 +378,35 @@
     border: 1px solid var(--border-color, #30363d);
     border-radius: 0.5rem;
     background: var(--bg-secondary, #161b22);
+  }
+
+  @media (max-width: 420px) {
+    .connection-form,
+    .reconnect-actions {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    label,
+    input,
+    select,
+    button {
+      width: 100%;
+    }
+
+    .update-banner {
+      align-items: stretch;
+      flex-direction: column;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
   }
 </style>
