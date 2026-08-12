@@ -63,6 +63,27 @@ All rows in this section have **Phase 2 owner: Step 2**.
 | P2-2-endpoint-controls    | The user can view and edit the endpoint and select the four transports before connecting; owner: root controls in `client/index.html`, `public/js/app.js`, and `public/js/connection.js`.                              | `AUTOMATED`, `e2e/transports.spec.ts`; candidate `PASS` in browser job.                                                                                              | Built web `COVERED`; Electron `MISSING` (Step 12); mobile `MISSING` (Step 2); keyboard/focus/theme `MISSING` (Step 2); reconnect `COVERED`; disposal `NOT_APPLICABLE` (controls hold no session resource).                     | Svelte controls preserve values through `/config.json`, expose all transports, and pass the existing transport fixtures.     | Restore the legacy controls and `public/js/connection.js` bindings.                      |
 | P2-2-chrome-theme-desktop | App chrome, login theme, theme selection, and desktop integration remain visible and available; owners: `public/js/theme-manager.js`, `public/js/login-theme-manager.js`, `public/js/desktop-integration.js`.          | `AUTOMATED`, `node --test test/theme-manager.test.mjs test/login-theme-manager.test.mjs test/desktop-integration.test.mjs`; candidate `PASS` in baseline job.        | Built web `MISSING` (Step 2); Electron `COVERED` by desktop baseline job; mobile `MISSING` (Step 2); keyboard/focus/theme `MISSING` (Step 2); reconnect `MISSING` (Step 2); disposal `COVERED` by controller lifecycle census. | Svelte chrome passes browser theme/focus checks and existing desktop integration behavior without duplicate listeners.       | Restore the three legacy manager modules and root chrome markup.                         |
 
+#### Step 2 replacement evidence — `COMPLETE` (local worktree, 2026-08-12)
+
+This evidence covers the Phase 2 preview only. The default `/` owner remains
+legacy; packaged Electron and the immutable Phase 2 release candidate remain
+Step 12 gates. The implementation revision is
+`e0c7ca193af3dc6d0f096bc17bc3b80e8dfadbe1` (Green PR 4); this is not a
+Phase 2 release candidate.
+
+| Row                         | Replacement evidence                                                                                                                                                                                                                     | Facet result                                                                                                                                      |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `P2-2-root-bootstrap`       | `npm run test:browser -- --project=chromium` — PASS (14); `npm run test:browser:production` — PASS (6). `e2e/phase2-shell.spec.ts` proves one Svelte root/session, no `/js/app.js`, disposal, and retained legacy `/` artifact behavior. | Built web, mobile 390-by-844, keyboard/focus, reconnect, and disposal `PASS`; Electron `MISSING` (Step 12).                                       |
+| `P2-2-connection`           | `npm run test:transports` — PASS (9), including Phase 2 `ws`, `wss`, `telnet`, and `telnets` fixture connections with no fallback.                                                                                                       | Built web, reconnect, and disposal `PASS`; Electron `MISSING` (Step 12).                                                                          |
+| `P2-2-connection-overlay`   | `npm run test:browser -- --project=chromium` — PASS (14); `npm run test:browser:production` — PASS (6). `e2e/phase2-shell.spec.ts` covers scheduled retry, immediate retry, stop, focus restoration, narrow viewport, and disposal.      | Built web, mobile, keyboard/focus, reconnect, and disposal `PASS`; Electron `MISSING` (Step 12).                                                  |
+| `P2-2-endpoint-controls`    | `npm run test:transports` — PASS (9); `e2e/phase2-shell.spec.ts` covers config, URL, Zork-only, blank fallback, and protocol persistence.                                                                                                | Built web, mobile, reconnect, and controls accessibility `PASS`; Electron `MISSING` (Step 12).                                                    |
+| `P2-2-chrome-theme-desktop` | `npm run test:browser -- --project=chromium` — PASS (14); `npm run test:browser:production` — PASS (6). The browser mock covers checking, available, downloading, downloaded, manual, error, actions, and listener disposal.             | Built web, mobile 390-by-844, keyboard/focus/theme, reduced motion, mocked desktop update/disposal `PASS`; packaged Electron `MISSING` (Step 12). |
+
+Shared Step 2 gate: `npm test`, `npm run typecheck`, `npm run check`, `npm run lint`,
+`npm run format:check`, `npm run build`, and `git diff --check` all passed. See the
+[Step 2 implementation plan](multi-connection-ui-phase-2-step-2-implementation-plan.md)
+for the complete command record and retained rollback boundary.
+
 ### Phase 2 Step 3 — workspace, layout, and mobile sheet
 
 All rows in this section have **Phase 2 owner: Step 3**.

@@ -18,7 +18,7 @@ const scriptFiles = [
   "playwright.config.ts",
   "vite.config.ts",
 ];
-const svelteFiles = ["client/phase0/**/*.svelte"];
+const svelteFiles = ["client/app/**/*.svelte", "client/phase0/**/*.svelte"];
 const scopedSvelteConfigs = svelte.configs.recommended.map((config) => ({
   ...config,
   files: svelteFiles,

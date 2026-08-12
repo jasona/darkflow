@@ -50,9 +50,9 @@
     "test:browser": "playwright test",
     "test:browser:production": "playwright test --config playwright.production.config.ts --project=chromium",
     "test:transports": "npm run build && playwright test --config playwright.production.config.ts --project=transports",
-    "lint": "eslint \"client/app/**/*.ts\" \"client/model/**/*.ts\" \"client/storage/**/*.ts\" \"client/configuration/**/*.ts\" \"client/runtime/**/*.ts\" \"client/transport/**/*.ts\" \"client/gmcp/**/*.ts\" \"client/phase0/**/*.{js,ts,svelte}\" \"e2e/**/*.ts\" \"*.config.{mjs,ts}\"",
-    "format": "prettier --write \"client/app/**/*.ts\" \"client/model/**/*.ts\" \"client/storage/**/*.ts\" \"client/configuration/**/*.ts\" \"client/runtime/**/*.ts\" \"client/transport/**/*.ts\" \"client/gmcp/**/*.ts\" \"client/phase0/**/*.{js,ts,svelte}\" \"e2e/**/*.ts\" \"*.config.{mjs,ts}\" \"tsconfig*.json\"",
-    "format:check": "prettier --check \"client/app/**/*.ts\" \"client/model/**/*.ts\" \"client/storage/**/*.ts\" \"client/configuration/**/*.ts\" \"client/runtime/**/*.ts\" \"client/transport/**/*.ts\" \"client/gmcp/**/*.ts\" \"client/phase0/**/*.{js,ts,svelte}\" \"e2e/**/*.ts\" \"*.config.{mjs,ts}\" \"tsconfig*.json\""
+    "lint": "eslint \"client/app/**/*.{ts,svelte}\" \"client/model/**/*.ts\" \"client/storage/**/*.ts\" \"client/configuration/**/*.ts\" \"client/runtime/**/*.ts\" \"client/transport/**/*.ts\" \"client/gmcp/**/*.ts\" \"client/phase0/**/*.{js,ts,svelte}\" \"e2e/**/*.ts\" \"*.config.{mjs,ts}\"",
+    "format": "prettier --write \"client/app/**/*.{ts,svelte}\" \"client/model/**/*.ts\" \"client/storage/**/*.ts\" \"client/configuration/**/*.ts\" \"client/runtime/**/*.ts\" \"client/transport/**/*.ts\" \"client/gmcp/**/*.ts\" \"client/phase0/**/*.{js,ts,svelte}\" \"e2e/**/*.ts\" \"*.config.{mjs,ts}\" \"tsconfig*.json\"",
+    "format:check": "prettier --check \"client/app/**/*.{ts,svelte}\" \"client/model/**/*.ts\" \"client/storage/**/*.ts\" \"client/configuration/**/*.ts\" \"client/runtime/**/*.ts\" \"client/transport/**/*.ts\" \"client/gmcp/**/*.ts\" \"client/phase0/**/*.{js,ts,svelte}\" \"e2e/**/*.ts\" \"*.config.{mjs,ts}\" \"tsconfig*.json\""
   },
   "dependencies": {
     "electron-updater": "^6.8.9",

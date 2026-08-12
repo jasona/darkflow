@@ -25,15 +25,18 @@ deliberately narrow `Session` extension, and the existing boot transaction._
 
 ## Planning status
 
-This document is planning-only and does not authorize implementation. Step 1 is
-`COMPLETE`, and its ledger assigns the five shell rows to Step 2
+Step 1 is `COMPLETE`, and its ledger assigns the five shell rows to Step 2
 (`multi-connection-ui-phase-2-step-1-parity-matrix.md:54-64`). The current branch
-is `story/multi-connections-phase2` at `7452fc753f53eeeac0f1d7b210497e70df90257d`.
+is `story/multi-connections-phase2`; implementation completed locally on
+2026-08-12.
 
-Step 2 remains `OPEN` until every success criterion in this plan passes. The
-existing `/` entry remains the default legacy frontend throughout this step;
-Step 12 alone may replace it
+Step 2 is `COMPLETE` for its five owned preview rows. The existing `/` entry
+remains the default legacy frontend throughout this step; Step 12 alone may replace it
 (`multi-connection-ui-phase-2-step-1-parity-matrix.md:43-50`).
+
+The implementation evidence is for
+`e0c7ca193af3dc6d0f096bc17bc3b80e8dfadbe1`, not a Phase 2 release candidate.
+The ledger retains packaged Electron and final release certification for Step 12.
 
 ## Goal
 
@@ -463,18 +466,18 @@ default, and Step 3 can plan against the frozen public shell/session boundary.
 
 ## Success criteria
 
-- [ ] MH1-MH11 are satisfied and mapped to Green PR evidence.
-- [ ] `/` still loads one legacy client through the existing production bundle.
-- [ ] `/phase2/` loads one Svelte root and one public session without
+- [x] MH1-MH11 are satisfied and mapped to Green PR evidence.
+- [x] `/` still loads one legacy client through the existing production bundle.
+- [x] `/phase2/` loads one Svelte root and one public session without
       `/js/app.js`, a feature flag, or a second socket owner.
-- [ ] Svelte imports neither `SessionFacadeHandles` nor compatibility bridges.
-- [ ] All four transport fixtures pass through Phase 2 connection controls.
-- [ ] Reconnect overlay, app chrome, theme, mocked desktop integration,
+- [x] Svelte imports neither `SessionFacadeHandles` nor compatibility bridges.
+- [x] All four transport fixtures pass through Phase 2 connection controls.
+- [x] Reconnect overlay, app chrome, theme, mocked desktop integration,
       390-by-844 layout, keyboard/focus, reduced motion, and disposal pass in
       development and built web.
-- [ ] Unit, type, Svelte, lint, format, build/artifact, development-browser,
+- [x] Unit, type, Svelte, lint, format, build/artifact, development-browser,
       production-browser, transport, and diff/plan-format checks exit cleanly.
-- [ ] Only the five Step 2 ledger rows receive replacement evidence; actual
+- [x] Only the five Step 2 ledger rows receive replacement evidence; actual
       packaged Electron and all later-port gaps remain open.
 
 ## Rollback

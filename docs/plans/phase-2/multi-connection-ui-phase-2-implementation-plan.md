@@ -226,6 +226,11 @@ the default production owner, or create a second session.
 islands have one owner; no Svelte code imports `SessionFacadeHandles` or infers
 ownership from legacy toolbar DOM.
 
+**Implementation evidence:** `COMPLETE` locally on 2026-08-12; see the
+[Step 2 implementation plan](multi-connection-ui-phase-2-step-2-implementation-plan.md)
+and its five `P2-2-*` ledger rows. This is not the Step 12 immutable release
+candidate or packaged-Electron evidence.
+
 **Later plan resolves:** The smallest public shell/session surface and every
 root-level legacy lifecycle owner.
 
