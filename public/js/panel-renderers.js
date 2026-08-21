@@ -1536,7 +1536,8 @@ export const panelRenderers = {
     const dollSlots = [
       ['Head',null,'Head'],
       ['Neck',null,'Neck'],
-      ['Shoulders','Cloak','Shoulders / Cloak'],
+      ['Cloak',null,'Cloak'],
+      ['Shoulders',null,'Shoulders'],
       ['Body',null,'Body'],
       ['Hands','Shield','Hands / Shield'],
       ['Legs',null,'Legs'],
