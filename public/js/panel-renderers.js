@@ -1556,7 +1556,8 @@ export const panelRenderers = {
     const slotPattern = /\(([^)]+)\)\s*$/;
     const slotMap = {
       'worn on head': 'Head', 'worn around the neck': 'Neck',
-      'worn over the shoulders': 'Shoulders', 'worn on body': 'Body',
+      'worn on shoulders': 'Shoulders', 'worn over the shoulders': 'Cloak',
+      'worn on body': 'Body',
       'worn on body and legs': 'Body+Legs', 'worn as a full suit of armour': 'FullSuit',
       'worn on hands': 'Hands', 'worn on legs': 'Legs', 'worn on feet': 'Feet',
       'worn on finger': 'Finger', 'used as shield': 'Shield',
@@ -1635,6 +1636,7 @@ export const panelRenderers = {
     const dollSlots = [
       ['Head',null,'Head'],
       ['Neck',null,'Neck'],
+      ['Cloak',null,'Cloak'],
       ['Shoulders',null,'Shoulders'],
       ['Body',null,'Body'],
       ['Hands','Shield','Hands / Shield'],
