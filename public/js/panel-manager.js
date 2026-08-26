@@ -2466,10 +2466,35 @@ export const panelManager = {
   // left unsubscribed for the whole session.
   _armSubscriptionSyncFallback() {
     this._clearSubscriptionSyncFallback();
+    // Default to "assume an auth screen might still be up" until the first
+    // real dw:authwindowchange event tells us otherwise -- avoids a false
+    // watchdog warning on the very first tick after connect.
+    if (this._authWindowOpen === undefined) this._authWindowOpen = true;
     this._subscriptionSyncFallbackTimer = setTimeout(() => {
       this._subscriptionSyncFallbackTimer = null;
       if (this._characterSubscriptionSyncSent) return;
-      this._syncSubscriptionsAfterCharacterData();
+      // Fires before any character-login GMCP event has arrived (e.g. still on
+      // the login or password-reset screen), so this reaches the pre-auth
+      // login shell server-side and is discarded once the real player object
+      // takes over. Resend (harmless/idempotent) and keep retrying every 6s
+      // instead of consuming the one-shot latch meant for the real,
+      // character-data-triggered sync -- otherwise a slow login permanently
+      // suppresses the real sync and panels like Sky/Omens/Room
+      // never get subscribed for the rest of the session.
+      //
+      // With Darkwind.Session.Started as the primary trigger, this should
+      // now only fire while the player is still on the login/newchar screen
+      // (normal) or, once that screen is gone, only if a real signal got
+      // dropped -- which is worth surfacing since it's no longer expected.
+      if (!this._authWindowOpen) {
+        console.warn('[darkflow] Subscription sync fallback fired after auth completed -- a login signal was likely dropped.');
+      }
+      gmcp.sendSubscriptions({
+        reason: 'pre-login-fallback',
+        full: true,
+        panels: this.getSubscriptionPanels(),
+      });
+      this._armSubscriptionSyncFallback();
     }, 6000);
   },
 
@@ -3388,6 +3413,23 @@ export const panelManager = {
     });
     document.addEventListener('dw:lag-open-panel', () => {
       this.openPanel('connection');
+    });
+    // Tracks whether an auth modal (login/newchar/charselect) is currently
+    // open, purely to tell the subscription-sync fallback watchdog apart:
+    // still-on-the-login-screen is normal, but firing after the auth UI
+    // has already closed means a real GMCP frame likely got dropped.
+    document.addEventListener('dw:authwindowchange', (event) => {
+      this._authWindowOpen = !!(event.detail && event.detail.open);
+    });
+
+    // Deterministic, one-shot signal fired by the server the instant a
+    // connection is handed off to a freshly logged-in/created player
+    // object -- the primary trigger for the login subscription sync.
+    // Char.Vitals/Char.Status/GuildVitals/XPMon below stay wired to the
+    // same sync as defense-in-depth (e.g. older servers that predate this
+    // message), but they're no longer the only way it can fire.
+    gmcp.on('Darkwind.Session.Started', () => {
+      this._syncSubscriptionsAfterCharacterData();
     });
 
     gmcp.on('Char.Vitals', (data) => {

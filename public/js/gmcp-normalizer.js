@@ -26,6 +26,7 @@ const CANONICAL_PACKAGES = new Map([
   ['core.ping', 'Core.Ping'],
   ['darkwind.lag.status', 'Darkwind.Lag.Status'],
   ['darkwind.session.recovered', 'Darkwind.Session.Recovered'],
+  ['darkwind.session.started', 'Darkwind.Session.Started'],
   ['darkwind.xpmon', 'Darkwind.XPMon'],
   ['darkwind.visual.events', 'Darkwind.Visual.Events'],
   ['darkwind.visual.event', 'Darkwind.Visual.Event'],
